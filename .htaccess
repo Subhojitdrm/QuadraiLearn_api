@@ -1,0 +1,10 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Set the base path for the rewrite rules
+  # This is the path from your subdomain's document root (`public_html/QuadraiLearn`) to your API code (`api/`)
+  RewriteBase /api/
+
+  # Redirect all requests to the public directory
+  RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
