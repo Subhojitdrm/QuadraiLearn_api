@@ -125,7 +125,44 @@ function salvage_json_outline(string $content): ?array {
 
   return null;
 }
+function fallback_outline_for_topic(string $topic, bool $micro): array {
+  // Generic, but clean and useful for any subject
+  $chapters = [
+    ['t'=>"Introduction to {$topic}",                        's'=>['Scope & Outcomes','Why it Matters','Where to Start']],
+    ['t'=>"Foundations of {$topic}",                         's'=>['Core Concepts','Terminology','Common Misconceptions']],
+    ['t'=>"Essential Techniques in {$topic}",                's'=>['Methods & Tools','Worked Examples','Practice Tips']],
+    ['t'=>"Intermediate Concepts in {$topic}",               's'=>['Deeper Patterns','Pitfalls','Best Practices']],
+    ['t'=>"Applications of {$topic}",                        's'=>['Real-World Scenarios','Mini Projects','Case Studies']],
+    ['t'=>"Assessment & Review for {$topic}",                's'=>['Checklists','Exercises','Mock Questions']],
+    ['t'=>"Advanced Topics in {$topic}",                     's'=>['Edge Cases','Performance/Scaling','Trade-offs']],
+    ['t'=>"Project / Capstone for {$topic}",                 's'=>['Project Brief','Milestones','Evaluation Criteria']],
+    ['t'=>"Further Study & Resources for {$topic}",          's'=>['Books & Papers','Courses & Communities','Next Steps']]
+  ];
 
+  // If the topic looks like a school grade (e.g., "Math class 1"), bias to a simpler syllabus
+  if (preg_match('/\b(class|grade|level)\s*\d+/i', $topic)) {
+    $chapters = [
+      ['t'=>"Getting Started with {$topic}",                  's'=>['What You Will Learn','Study Plan','How to Practice']],
+      ['t'=>"Numbers & Operations in {$topic}",               's'=>['Basics','Examples','Exercises']],
+      ['t'=>"Patterns & Problem Solving in {$topic}",         's'=>['Strategies','Worked Examples','Practice']],
+      ['t'=>"Measurement & Shapes in {$topic}",               's'=>['Key Ideas','Hands-on Tasks','Review']],
+      ['t'=>"Everyday Applications of {$topic}",              's'=>['Real-Life Examples','Mini Projects','Tips']],
+      ['t'=>"Review & Assessment for {$topic}",               's'=>['Check Your Understanding','Quiz','What’s Next']]
+    ];
+  }
+
+  // Trim for micro mode
+  if ($micro) $chapters = array_slice($chapters, 0, 6);
+
+  // Build the final array with indexes
+  $out = []; $i = 1;
+  foreach ($chapters as $c) {
+    $secs = array_slice($c['s'], 0, $micro ? 4 : 6);
+    if (count($secs) < 2) $secs = array_pad($secs, 2, 'Overview');
+    $out[] = ['index'=>$i++, 'title'=>$c['t'], 'sections'=>$secs];
+  }
+  return $out;
+}
 // ---------- input ----------
 $in       = body_json();
 $topic    = trim((string)($in['topic'] ?? ''));
@@ -133,7 +170,7 @@ $style    = trim((string)($in['style'] ?? ''));       // Academic / Practical / 
 $level    = trim((string)($in['level'] ?? ''));       // Beginner / Intermediate / Advanced
 $language = trim((string)($in['language'] ?? ''));    // English / ...
 $micro    = !empty($in['microMode']);                 // compact outline
-
+$constraint = trim((string)($in['promptConstraint'] ?? ''));  // NEW (optional)
 if ($topic === '') out(422, ['ok'=>false,'error'=>'topic is required']);
 
 // ---------- prompts ----------
@@ -153,14 +190,16 @@ SYS;
 
 $noteFull  = "Produce a full outline (8–14 chapters, 3–6 sections each).";
 $noteMicro = "Produce a compact outline (6–10 chapters, 2–5 sections each).";
-
+$constraintLine = $constraint !== '' ? ("Constraint: {$constraint}\n") : '';
 // compose base user message
 $baseUser = "Create a comprehensive chapter outline for the topic below.\n\n".
             "Topic: {$topic}\n".
             ($style    ? "Style: {$style}\n"     : "").
             ($level    ? "Level: {$level}\n"     : "").
             ($language ? "Language: {$language}\n": "").
-            ($micro ? $noteMicro : $noteFull) . "\n\n".
+            $constraintLine .
+            ($micro ? "Produce a compact outline (6–10 chapters, 2–5 sections each)." 
+                    : "Produce a full outline (8–14 chapters, 3–6 sections each).") . "\n\n".
             "Return STRICT JSON ONLY in the shape:\n".
             "{ \"outline\": [ { \"index\": 1, \"title\": \"...\", \"sections\": [\"...\",\"...\"] }, ... ] }";
 
@@ -285,7 +324,8 @@ foreach ($outlineIn as $row) {
 }
 
 if (empty($outline)) {
-  out(502, ['ok'=>false,'error'=>'empty_outline_after_processing']);
+  // Final safety net: synthesize a clean outline so the UI never breaks
+  $outline = fallback_outline_for_topic($topic, $micro);
 }
 
 // ---------- success ----------
