@@ -27,7 +27,12 @@ try {
   $chap = $pdo->prepare('SELECT id, chapter_index, title, status FROM book_chapters WHERE book_id = :bid ORDER BY chapter_index ASC');
   $chap->execute([':bid'=>$id]);
   $chapters = $chap->fetchAll();
-
+$row['sections'] = [];
+if (!empty($row['sections_json'])) {
+  $arr = json_decode($row['sections_json'], true);
+  if (is_array($arr)) $row['sections'] = $arr;
+}
+unset($row['sections_json']);
   echo json_encode(['ok'=>true, 'book'=>$book, 'chapters'=>$chapters], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 
 } catch (Throwable $e) {

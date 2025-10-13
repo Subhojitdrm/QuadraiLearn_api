@@ -143,33 +143,32 @@ try {
     $current[(int)$row['chapter_index']] = $row;
   }
 
-  $ins = $pdo->prepare('INSERT INTO book_chapters (book_id, chapter_index, title, status, created_at, updated_at)
-                        VALUES (:bid, :idx, :title, "pending", NOW(), NOW())');
+ $ins = $pdo->prepare('INSERT INTO book_chapters
+  (book_id, chapter_index, title, sections_json, status, created_at, updated_at)
+  VALUES (:bid, :idx, :title, :sections, "pending", NOW(), NOW())');
 
-  $upd = $pdo->prepare('UPDATE book_chapters SET title=:title, updated_at=NOW()
-                        WHERE book_id=:bid AND chapter_index=:idx');
+  $upd = $pdo->prepare('UPDATE book_chapters
+  SET title=:title, sections_json=:sections, updated_at=NOW()
+  WHERE book_id=:bid AND chapter_index=:idx');
 
   $seenIncomingIdx = [];
   $inserted=0; $updated=0; $kept=0; $removed=0;
 
   foreach ($outline as $c) {
-    $idx = (int)$c['index'];
-    $ttl = (string)$c['title'];
-    $seenIncomingIdx[$idx] = true;
+  $idx = (int)$c['index'];
+  $ttl = (string)$c['title'];
+  $secs = isset($c['sections']) && is_array($c['sections']) ? $c['sections'] : [];
+  $sectionsJson = json_encode($secs, JSON_UNESCAPED_UNICODE);
 
-    if (!isset($current[$idx])) {
-      $ins->execute([':bid'=>$bookId, ':idx'=>$idx, ':title'=>$ttl]);
-      $inserted++;
-    } else {
-      // Update title if changed; content/status preserved
-      if (trim((string)$current[$idx]['title']) !== $ttl) {
-        $upd->execute([':title'=>$ttl, ':bid'=>$bookId, ':idx'=>$idx]);
-        $updated++;
-      } else {
-        $kept++;
-      }
-    }
+  if (!isset($current[$idx])) {
+    $ins->execute([':bid'=>$bookId, ':idx'=>$idx, ':title'=>$ttl, ':sections'=>$sectionsJson]);
+    $inserted++;
+  } else {
+    // Update title/sections if changed; content/status preserved
+    $upd->execute([':title'=>$ttl, ':sections'=>$sectionsJson, ':bid'=>$bookId, ':idx'=>$idx]);
+    $updated++;
   }
+}
 
   // remove orphaned pending chapters (indices no longer present)
   foreach ($current as $idx => $row) {

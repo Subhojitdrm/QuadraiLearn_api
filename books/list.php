@@ -38,7 +38,12 @@ try {
     );
     $stmt->execute([':uid'=>$uid]);
   }
-
+  $row['sections'] = [];
+if (!empty($row['sections_json'])) {
+  $arr = json_decode($row['sections_json'], true);
+  if (is_array($arr)) $row['sections'] = $arr;
+}
+unset($row['sections_json']);
   $rows = $stmt->fetchAll();
   echo json_encode(['ok'=>true, 'books'=>$rows], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 
