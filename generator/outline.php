@@ -10,16 +10,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
 /**
  * Requires:
- *   - api/config.php with:
- *       const OPENROUTER_API_KEY = 'sk-or-...';
- *       const DEBUG = false; // optional
- *   - api/lib/jwt.php and api/lib/auth.php (for require_auth)
+ *  - api/config.php with: const OPENROUTER_API_KEY = '...'; const DEBUG = false;
+ *  - api/lib/auth.php providing require_auth()
  */
 require_once __DIR__ . '/../config.php';
-require_once __DIR__ . '/../lib/auth.php';  // provides require_auth()
+require_once __DIR__ . '/../lib/auth.php'; // enforces JWT
 
-// ✅ Enforce login (401 if missing/invalid)
-$claims = require_auth();
+// ---------- auth: only logged-in users ----------
+$claims = require_auth(); // 401s if missing/invalid
 $userId = (int)($claims['sub'] ?? 0);
 if ($userId <= 0) {
   http_response_code(401);
@@ -27,16 +25,16 @@ if ($userId <= 0) {
   exit;
 }
 
-/** === Config === */
-$API_KEY = (defined('OPENROUTER_API_KEY') ? OPENROUTER_API_KEY : '');
-$MODEL   = 'alibaba/tongyi-deepresearch-30b-a3b:free'; // change model if you want
+// ---------- config ----------
+$API_KEY = defined('OPENROUTER_API_KEY') ? OPENROUTER_API_KEY : '';
+$MODEL   = 'alibaba/tongyi-deepresearch-30b-a3b:free'; // change model if you wish
 if ($API_KEY === '') {
   http_response_code(500);
   echo json_encode(['ok'=>false,'error'=>'OpenRouter API key missing in config.php']);
   exit;
 }
 
-/** === Helpers === */
+// ---------- helpers ----------
 function body_json(): array {
   $raw = file_get_contents('php://input');
   $j = json_decode($raw, true);
@@ -63,35 +61,77 @@ function http_post_json(string $url, array $headers, array $payload, int $timeou
   curl_close($ch);
   return [$code, $resp, $err];
 }
+// PHP < 8.1 polyfill
+if (!function_exists('array_is_list')) {
+  function array_is_list(array $arr): bool { $i=0; foreach ($arr as $k=>$_){ if ($k!==$i++) return false; } return true; }
+}
+
+// Strip ```json ... ``` fences if the model wraps output
 function strip_code_fences(string $s): string {
-  // Remove ```json ... ``` or ``` ... ```
-  if (preg_match('/```(?:json)?\s*([\s\S]*?)```/i', $s, $m)) {
-    return trim($m[1]);
-  }
+  if (preg_match('/```(?:json)?\s*([\s\S]*?)```/i', $s, $m)) return trim($m[1]);
   return $s;
 }
-// Polyfill for PHP < 8.1
-if (!function_exists('array_is_list')) {
-  function array_is_list(array $arr): bool {
-    $i = 0;
-    foreach ($arr as $k => $_) { if ($k !== $i++) return false; }
-    return true;
+
+/** Try to salvage valid JSON from possibly fenced / truncated output */
+function salvage_json_outline(string $content): ?array {
+  $raw = trim(strip_code_fences($content));
+
+  // 1) direct decode (object or array)
+  $j = json_decode($raw, true);
+  if (is_array($j)) {
+    if (isset($j['outline']) && is_array($j['outline'])) return $j;
+    if (array_is_list($j)) return ['outline' => $j];
   }
+
+  // 2) largest {...} or [...] block
+  if (preg_match('/(\{(?:[^{}]|(?R))*\})/s', $content, $m)) {
+    $j = json_decode($m[1], true);
+    if (is_array($j)) {
+      if (isset($j['outline']) && is_array($j['outline'])) return $j;
+      if (array_is_list($j)) return ['outline' => $j];
+    }
+  }
+  if (preg_match('/(\[(?:[^\[\]]|(?R))*\])/s', $content, $m2)) {
+    $a = json_decode($m2[1], true);
+    if (is_array($a) && array_is_list($a)) return ['outline' => $a];
+  }
+
+  // 3) trim to last closing brace/bracket and try
+  $lastObj = strrpos($raw, '}'); $lastArr = strrpos($raw, ']');
+  $cutPos  = max($lastObj !== false ? $lastObj : -1, $lastArr !== false ? $lastArr : -1);
+  if ($cutPos > 0) {
+    $slice = substr($raw, 0, $cutPos + 1);
+    $j = json_decode($slice, true);
+    if (is_array($j)) {
+      if (isset($j['outline']) && is_array($j['outline'])) return $j;
+      if (array_is_list($j)) return ['outline' => $j];
+    }
+  }
+
+  // 4) balance braces/brackets and retry
+  $openCurly = substr_count($raw, '{');  $closeCurly = substr_count($raw, '}');
+  $openBrack = substr_count($raw, '[');  $closeBrack = substr_count($raw, ']');
+  $fix = $raw . str_repeat('}', max(0, $openCurly - $closeCurly)) . str_repeat(']', max(0, $openBrack - $closeBrack));
+  $j = json_decode($fix, true);
+  if (is_array($j)) {
+    if (isset($j['outline']) && is_array($j['outline'])) return $j;
+    if (array_is_list($j)) return ['outline' => $j];
+  }
+
+  return null;
 }
 
-/** === Input === */
+// ---------- input ----------
 $in       = body_json();
 $topic    = trim((string)($in['topic'] ?? ''));
-$style    = trim((string)($in['style'] ?? ''));      // Academic / Practical / Exam Purpose ...
-$level    = trim((string)($in['level'] ?? ''));      // Beginner / Intermediate / Advanced
-$language = trim((string)($in['language'] ?? ''));   // English / ...
-$micro    = !empty($in['microMode']);                // true -> compact outline
+$style    = trim((string)($in['style'] ?? ''));       // Academic / Practical / Exam Purpose ...
+$level    = trim((string)($in['level'] ?? ''));       // Beginner / Intermediate / Advanced
+$language = trim((string)($in['language'] ?? ''));    // English / ...
+$micro    = !empty($in['microMode']);                 // true -> compact outline
 
-if ($topic === '') {
-  out(422, ['ok'=>false,'error'=>'topic is required']);
-}
+if ($topic === '') out(422, ['ok'=>false,'error'=>'topic is required']);
 
-/** === Prompt === */
+// ---------- prompt ----------
 $sys = <<<SYS
 You are an expert educational author and curriculum architect.
 Design a complete, real-book-quality chapter outline for the given topic.
@@ -122,11 +162,11 @@ $messages = [
     "Return STRICT JSON ONLY in the following shape:\n".
     "{ \"outline\": [ { \"index\": 1, \"title\": \"...\", \"sections\": [\"...\",\"...\"] }, ... ] }"
   ],
-  // (Harmless) schema hint to nudge some models
+  // gentle schema hint; harmless if ignored
   ['role' => 'user', 'content' => 'Schema: {"outline":[{"index":1,"title":"...","sections":["..."]}]}']
 ];
 
-/** === Call OpenRouter === */
+// ---------- call OpenRouter ----------
 list($code, $resp, $curlErr) = http_post_json(
   'https://openrouter.ai/api/v1/chat/completions',
   [
@@ -138,9 +178,9 @@ list($code, $resp, $curlErr) = http_post_json(
   [
     'model'           => $MODEL,
     'messages'        => $messages,
-    'temperature'     => 0.3,   // prefer stable structure
+    'temperature'     => 0.3,
     'max_tokens'      => 1600,
-    'response_format' => ['type' => 'json_object'] // hint some models respect
+    'response_format' => ['type' => 'json_object'] // some models respect this
   ],
   90
 );
@@ -162,35 +202,16 @@ if (!is_string($content) || $content === '') {
   out(502, ['ok'=>false,'error'=>'no_content_from_model', 'details'=>(defined('DEBUG')&&DEBUG)?$data:null]);
 }
 
-/** === Parse model output robustly === */
-$raw    = trim(strip_code_fences($content));
-$parsed = json_decode($raw, true);
-
-// If not parsed, try largest object or array inside
-if (!is_array($parsed)) {
-  if (preg_match('/(\{(?:[^{}]|(?R))*\})/s', $content, $m)) {
-    $parsed = json_decode($m[1], true);
-  }
-  if (!is_array($parsed) && preg_match('/(\[(?:[^\[\]]|(?R))*\])/s', $content, $m2)) {
-    $maybeArray = json_decode($m2[1], true);
-    if (is_array($maybeArray)) $parsed = ['outline' => $maybeArray];
-  }
-}
-
-if (!is_array($parsed)) {
+// ---------- parse & salvage ----------
+$parsed = salvage_json_outline($content);
+if (!$parsed) {
   out(502, ['ok'=>false,'error'=>'model_did_not_return_outline_json', 'raw'=>(defined('DEBUG')&&DEBUG)?$content:null]);
 }
 
-/** Accept {outline:[...]} or top-level array */
-if (isset($parsed['outline']) && is_array($parsed['outline'])) {
-  $outlineIn = $parsed['outline'];
-} elseif (array_is_list($parsed)) {
-  $outlineIn = $parsed;
-} else {
-  out(502, ['ok'=>false,'error'=>'model_did_not_return_outline_json', 'raw'=>(defined('DEBUG')&&DEBUG)?$content:null]);
-}
+// accept {outline:[...]} or top-level array
+$outlineIn = isset($parsed['outline']) && is_array($parsed['outline']) ? $parsed['outline'] : $parsed;
 
-/** === Post-process: normalize/clean === */
+// ---------- normalize / clean for UI ----------
 $outline     = [];
 $seen        = [];
 $maxChapters = $micro ? 6 : 20; // hard cap
@@ -202,7 +223,7 @@ foreach ($outlineIn as $row) {
   $title = trim((string)($row['title'] ?? ''));
   if ($title === '') continue;
 
-  // de-dup by lowercase title
+  // dedupe by case-insensitive title
   $key = mb_strtolower($title);
   if (isset($seen[$key])) continue;
   $seen[$key] = true;
@@ -238,7 +259,7 @@ if (empty($outline)) {
   out(502, ['ok'=>false,'error'=>'empty_outline_after_processing', 'raw'=>(defined('DEBUG')&&DEBUG)?$content:null]);
 }
 
-/** === Success === */
+// ---------- success ----------
 out(200, [
   'ok'   => true,
   'meta' => [
@@ -247,7 +268,7 @@ out(200, [
     'level'     => $level ?: null,
     'language'  => $language ?: null,
     'microMode' => $micro,
-    'userId'    => $userId          // helpful for debugging/analytics
+    'userId'    => $userId
   ],
   'outline' => $outline
 ]);
