@@ -2,9 +2,9 @@
   RewriteEngine On
 
   # Set the base path for the rewrite rules
-  # This is the path from your subdomain's document root to the directory containing this .htaccess file.
-  RewriteBase /
+  # This should be the URL path that corresponds to this directory.
+  RewriteBase /api/
 
   # Redirect all requests to the public directory
-  RewriteRule ^api/(.*)$ api/public/$1 [L]
+  RewriteRule ^(.*)$ public/$1 [L]
 </IfModule>
