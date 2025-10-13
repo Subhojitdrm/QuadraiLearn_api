@@ -1,4 +1,12 @@
-# config/.htaccess
-<Files "db.php">
-  Require all denied
-</Files>
+# /public_html/quadrailearn/api/.htaccess
+Options -Multiviews
+RewriteEngine On
+
+# If the request is an existing file or directory, serve it as-is
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Explicitly allow PHP files here to execute and STOP further rewrites
+RewriteRule ^health-check\.php$ - [L]
+RewriteRule ^ - [L]
