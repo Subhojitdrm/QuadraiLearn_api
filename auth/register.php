@@ -2,25 +2,19 @@
 declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Origin: *');                 // allow your UI
 header('Access-Control-Allow-Methods: POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
+// Handle preflight
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(204);
+    exit;
+}
 
-require __DIR__ . '/../db.php';
-require __DIR__ . '/../lib/audit.php';   // safe: internally try/catch
-require __DIR__ . '/../config.php';
+require __DIR__ . '/../db.php'; // uses your existing db.php & config.php
 
-function json_out(int $code, array $data, ?PDO $pdo = null, array $audit = []): void {
-    if ($pdo && !empty($audit)) {
-        try {
-            $audit['status_code'] = $code;
-            audit_log($pdo, $audit);
-        } catch (Throwable $e) {
-            // swallow audit failures
-        }
-    }
+function json_out(int $code, array $data): void {
     http_response_code($code);
     echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     exit;
@@ -34,16 +28,30 @@ function body_json(): array {
 
 $input = body_json();
 
+/**
+ * Expected payload keys:
+ * firstName (required)
+ * lastName (required)
+ * username (required)
+ * email (required)
+ * interestedAreas (optional array of strings)
+ * primaryStudyNeed (optional string)
+ * password (required)
+ * confirmPassword (required)
+ */
+
+$errors = [];
+
+// Basic validation
 $firstName = trim((string)($input['firstName'] ?? ''));
 $lastName  = trim((string)($input['lastName'] ?? ''));
 $username  = trim((string)($input['username'] ?? ''));
 $email     = trim((string)($input['email'] ?? ''));
-$areas     = $input['interestedAreas'] ?? null;
+$areas     = $input['interestedAreas'] ?? null;       // expect array or null
 $primary   = trim((string)($input['primaryStudyNeed'] ?? ''));
 $pass      = (string)($input['password'] ?? '');
 $confirm   = (string)($input['confirmPassword'] ?? '');
 
-$errors = [];
 if ($firstName === '') $errors['firstName'] = 'First name is required';
 if ($lastName === '')  $errors['lastName']  = 'Last name is required';
 if ($username === '')  $errors['username']  = 'Username is required';
@@ -62,6 +70,7 @@ if ($pass === '' || $confirm === '') {
     $errors['password'] = 'Password must be at least 8 characters';
 }
 
+// Normalize interestedAreas → array of strings
 $interests = null;
 if (is_array($areas)) {
     $clean = [];
@@ -71,93 +80,76 @@ if (is_array($areas)) {
     }
     $interests = $clean;
 } elseif ($areas !== null) {
-    $errors['interestedAreas'] = 'interestedAreas must be an array';
+    $errors['interestedAreas'] = 'interestedAreas must be an array of strings';
 }
 
 if (!empty($errors)) {
-    json_out(422, ['ok'=>false,'errors'=>$errors]);
+    json_out(422, ['ok' => false, 'errors' => $errors]);
 }
 
 try {
     $pdo = get_pdo();
 
-    // audit attempt (won't crash if audit table bad)
-    try {
-        audit_log($pdo, [
-            'action'=>'REGISTER_ATTEMPT',
-            'entity_type'=>'user',
-            'details'=>['email'=>$email,'username'=>$username]
-        ]);
-    } catch (Throwable $e) {}
-
-    // unique check
+    // Check uniqueness for username & email
     $stmt = $pdo->prepare('SELECT username, email FROM users WHERE username = :u OR email = :e LIMIT 1');
-    $stmt->execute([':u'=>$username, ':e'=>$email]);
+    $stmt->execute([':u' => $username, ':e' => $email]);
     if ($row = $stmt->fetch()) {
-        $errs = [];
-        if (strcasecmp($row['email'], $email) === 0)    $errs['email'] = 'Email already in use';
-        if (strcasecmp($row['username'], $username) === 0) $errs['username'] = 'Username already taken';
-
-        json_out(409, ['ok'=>false,'errors'=>$errs], $pdo, [
-            'action'=>'REGISTER_FAIL','entity_type'=>'user',
-            'details'=>['reason'=>'conflict','email'=>$email,'username'=>$username]
-        ]);
+        if (strcasecmp($row['email'], $email) === 0) {
+            $errors['email'] = 'Email already in use';
+        }
+        if (strcasecmp($row['username'], $username) === 0) {
+            $errors['username'] = 'Username already taken';
+        }
+        json_out(409, ['ok' => false, 'errors' => $errors]);
     }
 
+    // Hash password
     $hash = password_hash($pass, PASSWORD_DEFAULT);
+
+    // Prepare JSON for interests (MySQL JSON or text)
+    // If your table uses JSON type, pass json to MySQL using JSON string.
     $interestsJson = $interests !== null ? json_encode($interests, JSON_UNESCAPED_UNICODE) : null;
 
-    // if your users.interests is TEXT, this still works (stores JSON string)
-    $sql = 'INSERT INTO users
-            (first_name,last_name,username,email,interests,primary_study_need,password_hash)
-            VALUES
-            (:first,:last,:user,:email,:interests,:primary,:ph)';
+    $sql = 'INSERT INTO users (
+                first_name, last_name, username, email, interests, primary_study_need, password_hash
+            ) VALUES (
+                :first, :last, :user, :email, :interests, :primary, :ph
+            )';
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute([
-        ':first'=>$firstName,
-        ':last'=>$lastName,
-        ':user'=>$username,
-        ':email'=>$email,
-        ':interests'=>$interestsJson,
-        ':primary'=>($primary !== '' ? $primary : null),
-        ':ph'=>$hash,
+        ':first'     => $firstName,
+        ':last'      => $lastName,
+        ':user'      => $username,
+        ':email'     => $email,
+        ':interests' => $interestsJson,        // MySQL will cast valid JSON string into JSON column
+        ':primary'   => $primary !== '' ? $primary : null,
+        ':ph'        => $hash,
     ]);
 
     $userId = (int)$pdo->lastInsertId();
 
-    try {
-        audit_log($pdo, [
-            'action'=>'REGISTER_SUCCESS','entity_type'=>'user',
-            'entity_id'=>$userId,'user_id'=>$userId,
-            'details'=>['email'=>$email,'username'=>$username]
-        ]);
-    } catch (Throwable $e) {}
-
     json_out(201, [
-        'ok'=>true,
-        'message'=>'Registration successful',
-        'user'=>[
-            'id'=>$userId,
-            'firstName'=>$firstName,
-            'lastName'=>$lastName,
-            'username'=>$username,
-            'email'=>$email,
-            'interestedAreas'=>$interests ?? [],
-            'primaryStudyNeed'=>($primary !== '' ? $primary : null),
-            'createdAt'=>date('c'),
+        'ok' => true,
+        'message' => 'Registration successful',
+        'user' => [
+            'id' => $userId,
+            'firstName' => $firstName,
+            'lastName' => $lastName,
+            'username' => $username,
+            'email' => $email,
+            'interestedAreas' => $interests ?? [],
+            'primaryStudyNeed' => $primary !== '' ? $primary : null,
+            'createdAt' => date('c'),
         ]
-    ], $pdo, [
-        'action'=>'REGISTER_RESPONDED','entity_type'=>'user',
-        'entity_id'=>$userId,'user_id'=>$userId
     ]);
 
+} catch (PDOException $e) {
+    // Handle duplicate keys (in case race conditions hit unique indexes)
+    if ((int)$e->getCode() === 23000) {
+        json_out(409, ['ok' => false, 'errors' => ['unique' => 'Email or username already exists']]);
+    }
+    json_out(500, ['ok' => false, 'error' => 'database error']);
 } catch (Throwable $e) {
-    $msg = (defined('DEBUG') && DEBUG)
-        ? ($e->getMessage().' @ '.($e->getFile().':'.$e->getLine()))
-        : 'server error';
-    try {
-        audit_log($pdo ?? get_pdo(), ['action'=>'REGISTER_ERROR','details'=>['type'=>get_class($e)]]);
-    } catch (Throwable $ignore) {}
-    json_out(500, ['ok'=>false,'error'=>$msg]);
+    json_out(500, ['ok' => false, 'error' => 'server error']);
 }
