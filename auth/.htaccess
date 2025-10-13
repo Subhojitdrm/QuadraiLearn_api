@@ -1,0 +1,3 @@
+Options -Indexes -MultiViews
+# keep rewrites off so PHP files serve directly
+RewriteEngine Off
