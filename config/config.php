@@ -6,9 +6,9 @@ return [
 
   // Database
   'DB_HOST' => '127.0.0.1',
-  'DB_NAME' => 'quadrailearn',
-  'DB_USER' => 'root',
-  'DB_PASS' => 'secret',
+  'DB_NAME' => 'calmconq_quadravise_library',
+  'DB_USER' => 'calmconq_quadraviseadmin',
+  'DB_PASS' => 'calmconq_quadraviseadmin',
 
   // Auth
   'JWT_SECRET' => 'change-this-very-secret',
