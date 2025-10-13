@@ -15,7 +15,7 @@ $claims = require_auth();
 $userId = (int)($claims['sub'] ?? 0);
 if ($userId <= 0) {
   http_response_code(401);
-  echo json_encode(['ok'=>false,'error'=>'unauthorized']);
+  echo json_encode(['ok'=>false, 'error'=>'unauthorized']);
   exit;
 }
 
@@ -25,44 +25,97 @@ function out(int $code, array $payload): void {
   exit;
 }
 
-$bookId = (int)($_GET['bookId'] ?? 0);
-if ($bookId <= 0) out(422, ['ok'=>false, 'error'=>'bookId is required']);
+/**
+ * Optional query params:
+ *   ?q=<search in title/topic>
+ *   &lifecycle=draft|published|archived|trash
+ *   &status=draft|generating|ready   (if you use a separate status)
+ *   &limit=20  (default 50)
+ *   &offset=0
+ */
+$q         = trim((string)($_GET['q'] ?? ''));
+$lifecycle = trim((string)($_GET['lifecycle'] ?? ''));
+$status    = trim((string)($_GET['status'] ?? ''));
+$limit     = max(1, min(100, (int)($_GET['limit'] ?? 50)));
+$offset    = max(0, (int)($_GET['offset'] ?? 0));
+
+$where  = ['user_id = :uid'];
+$params = [':uid' => $userId];
+
+if ($q !== '') {
+  $where[] = '(title LIKE :q OR topic LIKE :q)';
+  $params[':q'] = '%'.$q.'%';
+}
+if ($lifecycle !== '') {
+  $where[] = 'lifecycle = :lc';
+  $params[':lc'] = $lifecycle;
+}
+if ($status !== '') {
+  $where[] = 'status = :st';
+  $params[':st'] = $status;
+}
+
+$whereSql = implode(' AND ', $where);
 
 try {
   $pdo = get_pdo();
 
-  // Ensure ownership
-  $b = $pdo->prepare('SELECT id FROM books WHERE id=:id AND user_id=:uid LIMIT 1');
-  $b->execute([':id'=>$bookId, ':uid'=>$userId]);
-  if (!$b->fetch()) out(404, ['ok'=>false, 'error'=>'book not found']);
+  // total count for pagination
+  $count = $pdo->prepare("SELECT COUNT(*) FROM books WHERE $whereSql");
+  $count->execute($params);
+  $total = (int)$count->fetchColumn();
 
-  // Fetch chapters
-  $stmt = $pdo->prepare('
-    SELECT id, chapter_index, title, sections_json, status, updated_at
-    FROM book_chapters
-    WHERE book_id = :bid
-    ORDER BY chapter_index ASC
-  ');
-  $stmt->execute([':bid'=>$bookId]);
+  // main query
+  $sql = "
+    SELECT id, title, topic, style, level, language, micro_mode,
+           status, lifecycle, draft_expires_at, published_at,
+           created_at, updated_at,
+           outline_json
+    FROM books
+    WHERE $whereSql
+    ORDER BY updated_at DESC
+    LIMIT :lim OFFSET :off
+  ";
+  $stmt = $pdo->prepare($sql);
+  foreach ($params as $k => $v) $stmt->bindValue($k, $v);
+  $stmt->bindValue(':lim', $limit,  PDO::PARAM_INT);
+  $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
+  $stmt->execute();
 
-  $chapters = [];
+  $items = [];
   while ($row = $stmt->fetch()) {
-    $sections = [];
-    if (!empty($row['sections_json'])) {
-      $tmp = json_decode((string)$row['sections_json'], true);
-      if (is_array($tmp)) $sections = array_values(array_filter(array_map('trim', $tmp), fn($s)=>$s!==''));
+    $outline = [];
+    if (!empty($row['outline_json'])) {
+      $tmp = json_decode((string)$row['outline_json'], true);
+      if (is_array($tmp)) $outline = $tmp;
     }
-    $chapters[] = [
-      'id'            => (int)$row['id'],
-      'chapter_index' => (int)$row['chapter_index'],
-      'title'         => (string)$row['title'],
-      'sections'      => $sections,
-      'status'        => (string)$row['status'],
-      'updated_at'    => (string)$row['updated_at'],
+
+    $items[] = [
+      'id'              => (int)$row['id'],
+      'title'           => (string)$row['title'],
+      'topic'           => (string)$row['topic'],
+      'style'           => $row['style'] ?: null,
+      'level'           => $row['level'] ?: null,
+      'language'        => $row['language'] ?: null,
+      'microMode'       => ((int)$row['micro_mode']) === 1,
+      'status'          => (string)$row['status'],
+      'lifecycle'       => (string)$row['lifecycle'],
+      'draft_expires_at'=> $row['draft_expires_at'] ?: null,
+      'published_at'    => $row['published_at'] ?: null,
+      'created_at'      => (string)$row['created_at'],
+      'updated_at'      => (string)$row['updated_at'],
+      // quick counts your UI might like
+      'outlineChapterCount' => is_array($outline) ? count($outline) : 0
     ];
   }
 
-  out(200, ['ok'=>true, 'bookId'=>$bookId, 'chapters'=>$chapters]);
+  out(200, [
+    'ok' => true,
+    'total' => $total,
+    'limit' => $limit,
+    'offset' => $offset,
+    'books' => $items
+  ]);
 
 } catch (Throwable $e) {
   out(500, ['ok'=>false, 'error'=> (defined('DEBUG') && DEBUG) ? $e->getMessage() : 'server error']);
