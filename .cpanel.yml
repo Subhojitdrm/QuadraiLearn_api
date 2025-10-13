@@ -8,5 +8,6 @@ deployment:
         --exclude ".cpanel.yml" \
         --exclude "node_modules" \
         ./api/ "$DEPLOYPATH"/
+# this is the deplyment path
     - /usr/bin/find "$DEPLOYPATH" -type d -exec chmod 755 {} \;
     - /usr/bin/find "$DEPLOYPATH" -type f -exec chmod 644 {} \;
