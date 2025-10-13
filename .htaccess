@@ -1,13 +1,4 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
-
-  # Route /api/health to the health check script
-  RewriteRule ^/api/health/?$ public/health-check.php [L]
-
-  # If the request is not for an existing file or directory in the 'public' folder,
-  # route the request to the front controller (index.php).
-  # This handles all API endpoints like /api/books, etc.
-  RewriteCond %{REQUEST_FILENAME} !-f
-  RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule ^(.*)$ public/index.php [L]
+  RewriteRule api/health public/health-check.php [L]
 </IfModule>
