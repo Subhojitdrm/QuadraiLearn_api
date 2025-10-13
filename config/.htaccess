@@ -10,3 +10,4 @@ RewriteRule ^ - [L]
 # Explicitly allow PHP files here to execute and STOP further rewrites
 RewriteRule ^health-check\.php$ - [L]
 RewriteRule ^ - [L]
+RewriteRule ^quadrailearn/api/ - [L]
