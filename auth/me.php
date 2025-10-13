@@ -5,7 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 
 require_once __DIR__ . '/../lib/auth.php';
-require_once __DIR__ . '/../lib/audit.php';
+require_once __DIR__ . '/../db.php';
 
 $claims = require_auth(); // 401s if invalid
 
@@ -19,13 +19,10 @@ try {
     $u = $stmt->fetch();
 
     if (!$u) {
-        audit_log($pdo, ['action'=>'ME_FAIL','user_id'=>$uid,'details'=>['reason'=>'not_found']]);
         http_response_code(404);
         echo json_encode(['ok'=>false,'error'=>'not found']);
         exit;
     }
-
-    audit_log($pdo, ['action'=>'ME_SUCCESS','user_id'=>$uid]);
 
     echo json_encode([
         'ok'=>true,
@@ -48,5 +45,5 @@ try {
 
 } catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['ok'=>false,'error'=>'server error']);
+    echo json_encode(['ok'=>false,'error'=>(defined('DEBUG')&&DEBUG)?$e->getMessage():'server error']);
 }
