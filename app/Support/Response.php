@@ -5,7 +5,8 @@ class Response {
   public static function json($body=[], $status=200, $headers=[]){
     return ['status'=>$status, 'headers'=>$headers, 'body'=>$body];
   }
-  public static function error($message, $status=400){
-    return self::json(['error'=>$message], $status);
+  public static function error($message, $status=400, $extra = []){
+    $body = array_merge(['error'=>$message], $extra);
+    return self::json($body, $status);
   }
 }

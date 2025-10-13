@@ -4,6 +4,7 @@ use App\Support\DB;
 use App\Support\Response;
 use App\Support\Util;
 use App\Support\JWT;
+use PDO;
 
 class AuthController {
   public function register($req){
@@ -82,7 +83,7 @@ class AuthController {
     // Get IDs of all interests
     $getIdsStmt = $pdo->prepare("SELECT id FROM interests WHERE name IN ($placeholders)");
     $getIdsStmt->execute($interestNames);
-    $interestIds = $getIdsStmt->fetchAll(\PDO::FETCH_COLUMN);
+    $interestIds = $getIdsStmt->fetchAll(PDO::FETCH_COLUMN);
 
     // Link interests to user
     $linkStmt = $pdo->prepare("INSERT IGNORE INTO user_interests (user_id, interest_id) VALUES (?, ?)");
