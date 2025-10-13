@@ -17,3 +17,4 @@ const JWT_TTL      = 3600;  // access token lifetime in seconds (1h)
 const LOGIN_MAX_ATTEMPTS     = 5;
 const LOGIN_WINDOW_MINUTES   = 15;
 const LOGIN_LOCK_MINUTES     = 15;
+const DEBUG = true; 
