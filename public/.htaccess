@@ -1,11 +1,8 @@
-# QuadraiLearn API — front controller routing
-RewriteEngine On
-RewriteBase /QuadraiLearn/api/public/
-
-# Serve existing files directly
-RewriteCond %{REQUEST_FILENAME} -f [OR]
-RewriteCond %{REQUEST_FILENAME} -d
-RewriteRule ^ - [L]
-
-# Otherwise, route all to index.php
-RewriteRule ^ index.php [QSA,L]
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  
+  # Handle Front Controller
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteRule ^ index.php [L]
+</IfModule>

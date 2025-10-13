@@ -1,0 +1,10 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Set the base path for the rewrite rules
+  # This should be the path from your domain's document root to your API's root directory
+  RewriteBase /quadrailearn/api/
+
+  # Redirect all requests to the public directory
+  RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
