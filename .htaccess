@@ -5,6 +5,8 @@
   # This should be the URL path that corresponds to this directory.
   RewriteBase /api/
 
-  # Redirect all requests to the public directory
+  # If the request is not already for the public folder, rewrite it to the public folder.
+  # This prevents a rewrite loop.
+  RewriteCond %{REQUEST_URI} !^/api/public/
   RewriteRule ^(.*)$ public/$1 [L]
 </IfModule>
