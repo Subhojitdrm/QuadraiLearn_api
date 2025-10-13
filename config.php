@@ -12,7 +12,7 @@ const JWT_SECRET   = 'paste-a-long-random-64+char-secret-here'; // change!
 const JWT_ISSUER   = 'quadrailearn.quadravise.com';
 const JWT_AUDIENCE = 'quadrailearn-users';
 const JWT_TTL      = 3600;  // access token lifetime in seconds (1h)
-
+const OPENROUTER_API_KEY = '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';
 // Login security thresholds
 const LOGIN_MAX_ATTEMPTS     = 5;
 const LOGIN_WINDOW_MINUTES   = 15;
