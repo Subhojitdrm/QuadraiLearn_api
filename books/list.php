@@ -4,50 +4,66 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
-header('Access-Control-Allow-Headers: Authorization');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
-require_once __DIR__ . '/../lib/auth.php';
-require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../lib/auth.php'; // require_auth()
+require_once __DIR__ . '/../db.php';       // get_pdo()
 
 $claims = require_auth();
-$uid = (int)($claims['sub'] ?? 0);
+$userId = (int)($claims['sub'] ?? 0);
+if ($userId <= 0) {
+  http_response_code(401);
+  echo json_encode(['ok'=>false,'error'=>'unauthorized']);
+  exit;
+}
 
-$q = isset($_GET['q']) ? trim((string)$_GET['q']) : '';
+function out(int $code, array $payload): void {
+  http_response_code($code);
+  echo json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+  exit;
+}
+
+$bookId = (int)($_GET['bookId'] ?? 0);
+if ($bookId <= 0) out(422, ['ok'=>false, 'error'=>'bookId is required']);
 
 try {
   $pdo = get_pdo();
 
-  if ($q !== '') {
-    $stmt = $pdo->prepare(
-      'SELECT b.id, b.title, b.topic, b.status, b.created_at,
-              (SELECT COUNT(*) FROM book_chapters c WHERE c.book_id = b.id) AS chapters
-       FROM books b
-       WHERE b.user_id = :uid AND (b.title LIKE :q OR b.topic LIKE :q)
-       ORDER BY b.created_at DESC LIMIT 100'
-    );
-    $stmt->execute([':uid'=>$uid, ':q'=>'%'.$q.'%']);
-  } else {
-    $stmt = $pdo->prepare(
-      'SELECT b.id, b.title, b.topic, b.status, b.created_at,
-              (SELECT COUNT(*) FROM book_chapters c WHERE c.book_id = b.id) AS chapters
-       FROM books b
-       WHERE b.user_id = :uid
-       ORDER BY b.created_at DESC LIMIT 100'
-    );
-    $stmt->execute([':uid'=>$uid]);
+  // Ensure ownership
+  $b = $pdo->prepare('SELECT id FROM books WHERE id=:id AND user_id=:uid LIMIT 1');
+  $b->execute([':id'=>$bookId, ':uid'=>$userId]);
+  if (!$b->fetch()) out(404, ['ok'=>false, 'error'=>'book not found']);
+
+  // Fetch chapters
+  $stmt = $pdo->prepare('
+    SELECT id, chapter_index, title, sections_json, status, updated_at
+    FROM book_chapters
+    WHERE book_id = :bid
+    ORDER BY chapter_index ASC
+  ');
+  $stmt->execute([':bid'=>$bookId]);
+
+  $chapters = [];
+  while ($row = $stmt->fetch()) {
+    $sections = [];
+    if (!empty($row['sections_json'])) {
+      $tmp = json_decode((string)$row['sections_json'], true);
+      if (is_array($tmp)) $sections = array_values(array_filter(array_map('trim', $tmp), fn($s)=>$s!==''));
+    }
+    $chapters[] = [
+      'id'            => (int)$row['id'],
+      'chapter_index' => (int)$row['chapter_index'],
+      'title'         => (string)$row['title'],
+      'sections'      => $sections,
+      'status'        => (string)$row['status'],
+      'updated_at'    => (string)$row['updated_at'],
+    ];
   }
-  $row['sections'] = [];
-if (!empty($row['sections_json'])) {
-  $arr = json_decode($row['sections_json'], true);
-  if (is_array($arr)) $row['sections'] = $arr;
-}
-unset($row['sections_json']);
-  $rows = $stmt->fetchAll();
-  echo json_encode(['ok'=>true, 'books'=>$rows], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+  out(200, ['ok'=>true, 'bookId'=>$bookId, 'chapters'=>$chapters]);
 
 } catch (Throwable $e) {
-  http_response_code(500);
-  echo json_encode(['ok'=>false,'error'=>(defined('DEBUG')&&DEBUG)?$e->getMessage():'server error']);
+  out(500, ['ok'=>false, 'error'=> (defined('DEBUG') && DEBUG) ? $e->getMessage() : 'server error']);
 }
