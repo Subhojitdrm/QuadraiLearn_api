@@ -1,0 +1,12 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH="/home/calmconq/public_html/QuadraiLearn/api"
+    - /bin/mkdir -p "$DEPLOYPATH"
+    - /usr/bin/rsync -av --delete \
+        --exclude ".git*" \
+        --exclude ".cpanel.yml" \
+        --exclude "node_modules" \
+        ./api/ "$DEPLOYPATH"/
+    - /usr/bin/find "$DEPLOYPATH" -type d -exec chmod 755 {} \;
+    - /usr/bin/find "$DEPLOYPATH" -type f -exec chmod 644 {} \;
