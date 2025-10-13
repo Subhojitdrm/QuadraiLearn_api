@@ -8,9 +8,9 @@ header('Access-Control-Allow-Headers: Content-Type');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
-require_once __DIR__ . '/../db.php';       // needs get_pdo()
-require_once __DIR__ . '/../config.php';   // must define JWT_* and (optionally) DEBUG
-require_once __DIR__ . '/../lib/jwt.php';  // needs jwt_issue()
+require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/jwt.php';
 
 function json_out(int $code, array $data): void {
     http_response_code($code);
@@ -23,9 +23,8 @@ function body_json(): array {
     return is_array($j) ? $j : [];
 }
 
-// --- Input ---
 $in = body_json();
-$identifier = trim((string)($in['identifier'] ?? ''));  // email OR username
+$identifier = trim((string)($in['identifier'] ?? ''));
 $password   = (string)($in['password'] ?? '');
 
 if ($identifier === '' || $password === '') {
@@ -33,61 +32,58 @@ if ($identifier === '' || $password === '') {
 }
 
 try {
-    // Quick sanity checks to avoid silent 500s
-    foreach (['JWT_SECRET','JWT_ISSUER','JWT_AUDIENCE','JWT_TTL'] as $const) {
-        if (!defined($const) || constant($const) === '' ) {
-            throw new RuntimeException("$const is not defined in config.php");
-        }
+    foreach (['JWT_SECRET','JWT_ISSUER','JWT_AUDIENCE','JWT_TTL'] as $c) {
+        if (!defined($c) || constant($c) === '') throw new RuntimeException("$c is not defined");
     }
 
     $pdo = get_pdo();
 
-    // Be tolerant of table shapes: select only the columns we truly need
-    // We’ll attempt both email and username without assuming extra columns.
-    $stmt = $pdo->prepare('SELECT id, email, username, password_hash FROM users WHERE email = :id OR username = :id LIMIT 1');
-    $stmt->execute([':id'=>$identifier]);
+    // ✅ FIX: distinct named params
+    $stmt = $pdo->prepare(
+        'SELECT id, email, username, password_hash
+         FROM users
+         WHERE email = :e OR username = :u
+         LIMIT 1'
+    );
+    $stmt->execute([':e' => $identifier, ':u' => $identifier]);
     $user = $stmt->fetch();
 
     if (!$user) {
         json_out(401, ['ok'=>false,'error'=>'invalid credentials']);
     }
 
+    // Fallback for schemas that used `password` column name
     if (!isset($user['password_hash'])) {
-        // Some older schemas used `password` instead of `password_hash`
         $stmt = $pdo->prepare('SELECT id, email, username, password AS password_hash FROM users WHERE id = :uid LIMIT 1');
-        $stmt->execute([':uid'=>(int)$user['id']]);
-        $user = $stmt->fetch() ?: $user; // fallback to original if not found
+        $stmt->execute([':uid' => (int)$user['id']]);
+        $user = $stmt->fetch() ?: $user;
     }
 
     if (!password_verify($password, (string)$user['password_hash'])) {
         json_out(401, ['ok'=>false,'error'=>'invalid credentials']);
     }
 
-    // Minimal safe name (don’t assume first/last columns exist)
     $displayName = $user['username'] ?? ($user['email'] ?? ('user#'.(int)$user['id']));
-
-    // Issue JWT
     $token = jwt_issue((int)$user['id'], [
-        'email'    => $user['email']   ?? null,
-        'username' => $user['username']?? null,
+        'email'    => $user['email']    ?? null,
+        'username' => $user['username'] ?? null,
         'name'     => $displayName,
         'role'     => 'user'
     ]);
 
     json_out(200, [
-        'ok'        => true,
-        'token'     => $token,
+        'ok' => true,
+        'token' => $token,
         'expiresIn' => JWT_TTL,
-        'user'      => [
+        'user' => [
             'id'       => (int)$user['id'],
             'email'    => $user['email']    ?? null,
             'username' => $user['username'] ?? null,
-            'name'     => $displayName,
+            'name'     => $displayName
         ]
     ]);
 
 } catch (Throwable $e) {
-    // Show the real reason only if DEBUG=true in config.php
     $msg = (defined('DEBUG') && DEBUG)
         ? ($e->getMessage().' @ '.basename($e->getFile()).':'.$e->getLine())
         : 'server error';
