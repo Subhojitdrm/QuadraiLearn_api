@@ -19,7 +19,9 @@ require __DIR__ . '/../app/Controllers/BooksController.php';
 require __DIR__ . '/../app/Controllers/GenerateController.php';
 require __DIR__ . '/../app/Controllers/ChaptersController.php';
 require __DIR__ . '/../app/Controllers/TestsController.php';
-
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 // 1) load config into getenv()
 App\Support\Env::boot(__DIR__ . '/../config/config.php');
 
