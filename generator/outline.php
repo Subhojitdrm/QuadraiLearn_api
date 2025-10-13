@@ -10,15 +10,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
 /**
  * Requires:
- *   - public_html/QuadraiLearn/api/config.php
- *     with:  const OPENROUTER_API_KEY = 'sk-or-...';
- *             const DEBUG = false;  // (optional)
+ *   - api/config.php with:
+ *       const OPENROUTER_API_KEY = 'sk-or-...';
+ *       const DEBUG = false; // optional
+ *   - api/lib/jwt.php and api/lib/auth.php (for require_auth)
  */
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/auth.php';  // provides require_auth()
+
+// ✅ Enforce login (401 if missing/invalid)
+$claims = require_auth();
+$userId = (int)($claims['sub'] ?? 0);
+if ($userId <= 0) {
+  http_response_code(401);
+  echo json_encode(['ok'=>false,'error'=>'unauthorized']);
+  exit;
+}
 
 /** === Config === */
 $API_KEY = (defined('OPENROUTER_API_KEY') ? OPENROUTER_API_KEY : '');
-$MODEL   = 'alibaba/tongyi-deepresearch-30b-a3b:free'; // change if you prefer another OpenRouter model
+$MODEL   = 'alibaba/tongyi-deepresearch-30b-a3b:free'; // change model if you want
 if ($API_KEY === '') {
   http_response_code(500);
   echo json_encode(['ok'=>false,'error'=>'OpenRouter API key missing in config.php']);
@@ -58,6 +69,14 @@ function strip_code_fences(string $s): string {
     return trim($m[1]);
   }
   return $s;
+}
+// Polyfill for PHP < 8.1
+if (!function_exists('array_is_list')) {
+  function array_is_list(array $arr): bool {
+    $i = 0;
+    foreach ($arr as $k => $_) { if ($k !== $i++) return false; }
+    return true;
+  }
 }
 
 /** === Input === */
@@ -103,7 +122,7 @@ $messages = [
     "Return STRICT JSON ONLY in the following shape:\n".
     "{ \"outline\": [ { \"index\": 1, \"title\": \"...\", \"sections\": [\"...\",\"...\"] }, ... ] }"
   ],
-  // Schema hint (harmless if ignored by model)
+  // (Harmless) schema hint to nudge some models
   ['role' => 'user', 'content' => 'Schema: {"outline":[{"index":1,"title":"...","sections":["..."]}]}']
 ];
 
@@ -127,20 +146,20 @@ list($code, $resp, $curlErr) = http_post_json(
 );
 
 if ($curlErr) {
-  out(502, ['ok'=>false,'error'=>'openrouter_unreachable','details'=> (defined('DEBUG')&&DEBUG) ? $curlErr : null]);
+  out(502, ['ok'=>false,'error'=>'openrouter_unreachable', 'details'=>(defined('DEBUG')&&DEBUG)?$curlErr:null]);
 }
 if ($code < 200 || $code >= 300) {
-  out($code ?: 502, ['ok'=>false,'error'=>'openrouter_error','details'=> (defined('DEBUG')&&DEBUG) ? $resp : null]);
+  out($code ?: 502, ['ok'=>false,'error'=>'openrouter_error', 'details'=>(defined('DEBUG')&&DEBUG)?$resp:null]);
 }
 
 $data = json_decode($resp, true);
 if (!is_array($data)) {
-  out(502, ['ok'=>false,'error'=>'bad_openrouter_json','details'=> (defined('DEBUG')&&DEBUG) ? $resp : null]);
+  out(502, ['ok'=>false,'error'=>'bad_openrouter_json', 'details'=>(defined('DEBUG')&&DEBUG)?$resp:null]);
 }
 
 $content = $data['choices'][0]['message']['content'] ?? '';
 if (!is_string($content) || $content === '') {
-  out(502, ['ok'=>false,'error'=>'no_content_from_model','details'=> (defined('DEBUG')&&DEBUG) ? $data : null]);
+  out(502, ['ok'=>false,'error'=>'no_content_from_model', 'details'=>(defined('DEBUG')&&DEBUG)?$data:null]);
 }
 
 /** === Parse model output robustly === */
@@ -159,7 +178,7 @@ if (!is_array($parsed)) {
 }
 
 if (!is_array($parsed)) {
-  out(502, ['ok'=>false,'error'=>'model_did_not_return_outline_json','raw'=> (defined('DEBUG')&&DEBUG) ? $content : null]);
+  out(502, ['ok'=>false,'error'=>'model_did_not_return_outline_json', 'raw'=>(defined('DEBUG')&&DEBUG)?$content:null]);
 }
 
 /** Accept {outline:[...]} or top-level array */
@@ -168,7 +187,7 @@ if (isset($parsed['outline']) && is_array($parsed['outline'])) {
 } elseif (array_is_list($parsed)) {
   $outlineIn = $parsed;
 } else {
-  out(502, ['ok'=>false,'error'=>'model_did_not_return_outline_json','raw'=> (defined('DEBUG')&&DEBUG) ? $content : null]);
+  out(502, ['ok'=>false,'error'=>'model_did_not_return_outline_json', 'raw'=>(defined('DEBUG')&&DEBUG)?$content:null]);
 }
 
 /** === Post-process: normalize/clean === */
@@ -183,7 +202,7 @@ foreach ($outlineIn as $row) {
   $title = trim((string)($row['title'] ?? ''));
   if ($title === '') continue;
 
-  // dedupe by lowercase title
+  // de-dup by lowercase title
   $key = mb_strtolower($title);
   if (isset($seen[$key])) continue;
   $seen[$key] = true;
@@ -216,7 +235,7 @@ foreach ($outlineIn as $row) {
 }
 
 if (empty($outline)) {
-  out(502, ['ok'=>false,'error'=>'empty_outline_after_processing','raw'=> (defined('DEBUG')&&DEBUG) ? $content : null]);
+  out(502, ['ok'=>false,'error'=>'empty_outline_after_processing', 'raw'=>(defined('DEBUG')&&DEBUG)?$content:null]);
 }
 
 /** === Success === */
@@ -227,7 +246,8 @@ out(200, [
     'style'     => $style ?: null,
     'level'     => $level ?: null,
     'language'  => $language ?: null,
-    'microMode' => $micro
+    'microMode' => $micro,
+    'userId'    => $userId          // helpful for debugging/analytics
   ],
   'outline' => $outline
 ]);
