@@ -1,6 +1,8 @@
 <?php
 namespace App\Services;
 
+use App\Support\Logger;
+
 class GeminiService
 {
   public static function generate($prompt){
@@ -24,7 +26,10 @@ class GeminiService
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
-    if ($err || $code >= 400) { error_log("Gemini: $code $err $response"); return ''; }
+    if ($err || $code >= 400) {
+      Logger::log("Gemini Error: [HTTP $code] $err - Response: $response");
+      return '';
+    }
     $json = json_decode($response, true);
     return isset($json['candidates'][0]['content']['parts'][0]['text'])
       ? $json['candidates'][0]['content']['parts'][0]['text']

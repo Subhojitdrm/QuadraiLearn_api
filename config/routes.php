@@ -6,6 +6,7 @@ use App\Controllers\BooksController;
 use App\Controllers\GenerateController;
 use App\Controllers\ChaptersController;
 use App\Controllers\TestsController;
+use App\Controllers\HealthController;
 
 /** @var Router $router */
 $router = $router ?? null;
@@ -14,6 +15,7 @@ if (!$router) return;
 /* Public */
 $router->post('/api/auth/register', [AuthController::class, 'register']);
 $router->post('/api/auth/login',    [AuthController::class, 'login']);
+$router->get('/api/health',         [HealthController::class, 'check']);
 
 /* Protected (JWT) */
 $auth = new Auth();
