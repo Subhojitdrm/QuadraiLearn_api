@@ -143,32 +143,38 @@ try {
     $current[(int)$row['chapter_index']] = $row;
   }
 
- $ins = $pdo->prepare('INSERT INTO book_chapters
-  (book_id, chapter_index, title, sections_json, status, created_at, updated_at)
-  VALUES (:bid, :idx, :title, :sections, "pending", NOW(), NOW())');
+  // NOTE: ensure your DB has `sections_json` JSON/LONGTEXT column on book_chapters
+  $ins = $pdo->prepare('INSERT INTO book_chapters
+    (book_id, chapter_index, title, sections_json, status, created_at, updated_at)
+    VALUES (:bid, :idx, :title, :sections, "pending", NOW(), NOW())');
 
   $upd = $pdo->prepare('UPDATE book_chapters
-  SET title=:title, sections_json=:sections, updated_at=NOW()
-  WHERE book_id=:bid AND chapter_index=:idx');
+    SET title=:title, sections_json=:sections, updated_at=NOW()
+    WHERE book_id=:bid AND chapter_index=:idx');
 
   $seenIncomingIdx = [];
   $inserted=0; $updated=0; $kept=0; $removed=0;
 
   foreach ($outline as $c) {
-  $idx = (int)$c['index'];
-  $ttl = (string)$c['title'];
-  $secs = isset($c['sections']) && is_array($c['sections']) ? $c['sections'] : [];
-  $sectionsJson = json_encode($secs, JSON_UNESCAPED_UNICODE);
+    $idx = (int)$c['index'];
+    $ttl = (string)$c['title'];
+    $secs = isset($c['sections']) && is_array($c['sections']) ? $c['sections'] : [];
+    $sectionsJson = json_encode($secs, JSON_UNESCAPED_UNICODE);
 
-  if (!isset($current[$idx])) {
-    $ins->execute([':bid'=>$bookId, ':idx'=>$idx, ':title'=>$ttl, ':sections'=>$sectionsJson]);
-    $inserted++;
-  } else {
-    // Update title/sections if changed; content/status preserved
-    $upd->execute([':title'=>$ttl, ':sections'=>$sectionsJson, ':bid'=>$bookId, ':idx'=>$idx]);
-    $updated++;
+    // IMPORTANT: mark seen indices so we don't mistakenly delete them later
+    $seenIncomingIdx[$idx] = true;
+
+    if (!isset($current[$idx])) {
+      $ins->execute([':bid'=>$bookId, ':idx'=>$idx, ':title'=>$ttl, ':sections'=>$sectionsJson]);
+      $inserted++;
+    } else {
+      // Update title/sections; content/status preserved
+      $upd->execute([':title'=>$ttl, ':sections'=>$sectionsJson, ':bid'=>$bookId, ':idx'=>$idx]);
+      // Only count as updated if something actually changed is hard to detect without diffing;
+      // we increment updated here for simplicity.
+      $updated++;
+    }
   }
-}
 
   // remove orphaned pending chapters (indices no longer present)
   foreach ($current as $idx => $row) {
@@ -177,8 +183,14 @@ try {
         $del = $pdo->prepare('DELETE FROM book_chapters WHERE id=:id LIMIT 1');
         $del->execute([':id'=>$row['id']]);
         $removed++;
+      } else {
+        // keep 'ready' chapters not in outline to avoid losing authored/generated content
+        $kept++;
       }
-      // if status is 'ready', we keep it to avoid losing authored/generated content
+    } else {
+      // those that existed and remain are "kept" if not counted above
+      // (we already incremented $updated for all matched chapters; if you prefer strict counts,
+      // you can compute diffs and set $kept accordingly)
     }
   }
 
