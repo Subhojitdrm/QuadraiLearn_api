@@ -12,11 +12,11 @@ require_once __DIR__ . '/../lib/auth.php'; // require_auth()
 require_once __DIR__ . '/../db.php';       // get_pdo()
 
 // -------------------- CONFIG --------------------
-const OPENROUTER_API_KEY = 'REPLACE_WITH_YOUR_OPENROUTER_KEY';
+const OPENROUTER_API_KEY = 'REPLACE_WITH_YOUR_OPENROUTER_KEY'; // <-- put your key
 const OPENROUTER_URL     = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_MODEL      = 'alibaba/tongyi-deepresearch-30b-a3b:free'; // change if you like
+const DEFAULT_MODEL      = 'alibaba/tongyi-deepresearch-30b-a3b:free'; // change if desired
 
-// simple user-level rate limits (tune as you wish)
+// simple user-level rate limits (tune as needed)
 const RL_MAX_PER_MIN = 3;
 const RL_MAX_PER_DAY = 20;
 
@@ -34,32 +34,89 @@ function body_json(): array {
 function clamp_int(int $v, int $min, int $max): int {
   return max($min, min($max, $v));
 }
-function extract_json_from_string(string $s): ?array {
-  // Try to locate the first { ... } or [ ... ] block and decode it
-  // Handle backticks fences too.
-  if (preg_match('/```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```/is', $s, $m)) {
-    $s = $m[1];
-  }
-  // Try object
-  $start = strpos($s, '{');
-  $startArr = strpos($s, '[');
-  if ($start === false && $startArr === false) return null;
-  if ($startArr !== false && ($start === false || $startArr < $start)) {
-    $start = $startArr; // array first
-  }
-  $candidate = substr($s, $start);
-  // Trim trailing garbage
-  $endPos = strrpos($candidate, '}');
-  $endArr = strrpos($candidate, ']');
-  if ($endPos === false && $endArr === false) return null;
-  $end = max($endPos ?: 0, $endArr ?: 0);
-  $candidate = substr($candidate, 0, $end + 1);
 
-  $dec = json_decode($candidate, true);
-  return is_array($dec) ? $dec : null;
+// --- Robust JSON extraction & salvage ---
+function strip_code_fences(string $s): string {
+  // remove ```json ... ``` or ``` ... ```
+  if (preg_match('/```(?:json)?\s*([\s\S]*?)\s*```/i', $s, $m)) {
+    return $m[1];
+  }
+  return $s;
 }
+function try_decode_json(string $s): ?array {
+  $d = json_decode($s, true);
+  return is_array($d) ? $d : null;
+}
+/**
+ * Extract the largest JSON object/array from a string.
+ * If truncated, salvage by dropping the last incomplete object and closing the array.
+ */
+function extract_or_salvage_json(string $raw): ?array {
+  $s = strip_code_fences($raw);
+
+  // Fast path
+  $d = try_decode_json($s);
+  if ($d !== null) return $d;
+
+  // Locate first JSON start
+  $startObj = strpos($s, '{');
+  $startArr = strpos($s, '[');
+  if ($startObj === false && $startArr === false) return null;
+
+  $start = ($startArr !== false && ($startObj === false || $startArr < $startObj)) ? $startArr : $startObj;
+  $candidate = substr($s, $start);
+
+  // Heuristic 1: cut at last closing brace/bracket
+  $endBrace = strrpos($candidate, '}');
+  $endBracket = strrpos($candidate, ']');
+  if ($endBrace !== false || $endBracket !== false) {
+    $end = max($endBrace ?: -1, $endBracket ?: -1);
+    if ($end >= 0) {
+      $slice = substr($candidate, 0, $end + 1);
+      $d2 = try_decode_json($slice);
+      if ($d2 !== null) return $d2;
+    }
+  }
+
+  // Heuristic 2: salvage array-of-objects
+  if ($startArr !== false && ($startObj === false || $startArr < $startObj)) {
+    $arr = substr($s, $startArr); // starts with '['
+    $depth = 0; $inStr = false; $esc = false;
+    $lastGoodObjectEnd = -1;
+    $len = strlen($arr);
+    for ($i=0; $i<$len; $i++) {
+      $ch = $arr[$i];
+      if ($inStr) {
+        if ($esc) { $esc = false; continue; }
+        if ($ch === '\\') { $esc = true; continue; }
+        if ($ch === '"') { $inStr = false; continue; }
+        continue;
+      } else {
+        if ($ch === '"') { $inStr = true; continue; }
+        if ($ch === '[' || $ch === '{') $depth++;
+        if ($ch === ']' || $ch === '}') {
+          $depth--;
+          if ($ch === '}' && $depth === 1) $lastGoodObjectEnd = $i;
+        }
+      }
+    }
+    if ($lastGoodObjectEnd > 0) {
+      $inner = substr($arr, 1, $lastGoodObjectEnd - 1);
+      $inner = rtrim($inner, ", \r\n\t");
+      $salvaged = '[' . $inner . ']';
+      $d3 = try_decode_json($salvaged);
+      if ($d3 !== null) return $d3;
+      $wrapped = '{"questions":' . $salvaged . '}';
+      $d4 = try_decode_json($wrapped);
+      if ($d4 !== null) return $d4;
+    }
+  }
+
+  return null;
+}
+
 function normalize_questions(array $raw, int $expectedCount): array {
-  // Accept either {questions:[...]} or just [...]
+  // Accept {questions:[...]} or just [...]
   $arr = [];
   if (isset($raw['questions']) && is_array($raw['questions'])) {
     $arr = $raw['questions'];
@@ -77,29 +134,25 @@ function normalize_questions(array $raw, int $expectedCount): array {
     $question = trim((string)($q['question'] ?? ''));
     $options  = $q['options'] ?? [];
     if (!is_array($options)) $options = [];
-    // normalize to 4 options, trimmed non-empty
     $opts = [];
     foreach ($options as $o) {
       $o = trim((string)$o);
       if ($o !== '') $opts[] = $o;
     }
     $opts = array_slice($opts, 0, 4);
-    if (count($opts) < 4) continue;
+    if ($question === '' || count($opts) < 4) continue;
 
-    // correct answer: accept index (1..4) or text
+    // correct index / text
     $answerIndex = null;
-    if (isset($q['answer_index'])) {
-      $answerIndex = (int)$q['answer_index'];
-    } elseif (isset($q['correct_index'])) {
-      $answerIndex = (int)$q['correct_index'];
-    }
+    if (isset($q['answer_index'])) $answerIndex = (int)$q['answer_index'];
+    elseif (isset($q['correct_index'])) $answerIndex = (int)$q['correct_index'];
+
     $answerText = '';
     if ($answerIndex !== null && $answerIndex >= 1 && $answerIndex <= 4) {
       $answerText = $opts[$answerIndex - 1] ?? '';
     } else {
       $answerText = trim((string)($q['answer'] ?? $q['correct_answer'] ?? ''));
       if ($answerText !== '') {
-        // find matching option
         foreach ($opts as $i => $opt) {
           if (strcasecmp($opt, $answerText) === 0) { $answerIndex = $i + 1; break; }
         }
@@ -167,11 +220,11 @@ try {
     out(429, ['ok'=>false, 'error'=>'rate_limited_day']);
   }
 } catch (Throwable $e) {
-  // continue without blocking if RL check fails silently
+  // If RL check fails, we let it pass rather than blocking the user.
 }
 
 // -------------------- PROMPT --------------------
-$sys = "You are a generator that outputs ONLY strict JSON, no prose. If unsure, still return valid JSON.";
+$sys = "You output ONLY strict JSON. No markdown code fences, no prose, no commentary. If unsure, output []";
 
 $userInstr =
   "Create a mock test with exactly {$count} multiple-choice questions on the topic: {$topic}.\n".
@@ -190,7 +243,7 @@ $userInstr =
   "- options must be 4 non-empty distinct strings\n".
   "- correct_index must match the correct option (1..4)\n".
   "- sub_topic must be specific (e.g., \"useEffect dependencies\" not just \"React\")\n".
-  "- No markdown fences, no commentary, no greetings — JSON ONLY.";
+  "- STRICT: Do not use markdown code fences (```), do not add commentary. JSON ONLY.";
 
 // -------------------- CALL OPENROUTER --------------------
 $payload = [
@@ -199,8 +252,8 @@ $payload = [
     ['role'=>'system', 'content'=>$sys],
     ['role'=>'user',   'content'=>$userInstr],
   ],
-  'temperature' => 0.3,
-  'max_tokens'  => 2000
+  'temperature' => 0.2,
+  'max_tokens'  => 3800   // bumped to reduce truncation
 ];
 
 $ch = curl_init(OPENROUTER_URL);
@@ -230,7 +283,7 @@ if ($content === '') {
 }
 
 // -------------------- PARSE & VALIDATE JSON --------------------
-$rawJson = extract_json_from_string($content);
+$rawJson = extract_or_salvage_json($content);
 if (!$rawJson) {
   out(502, ['ok'=>false, 'error'=>'json_extract_failed', 'raw'=>substr($content, 0, 400)]);
 }
@@ -239,8 +292,6 @@ $questions = normalize_questions($rawJson, $count);
 if (count($questions) === 0) {
   out(502, ['ok'=>false, 'error'=>'no_valid_questions', 'raw'=>substr($content, 0, 400)]);
 }
-
-// Ensure we have exactly $count (truncate or pad not allowed; we just truncate if more; error if fewer)
 if (count($questions) < $count) {
   out(502, ['ok'=>false, 'error'=>'insufficient_questions', 'got'=>count($questions), 'want'=>$count]);
 }
