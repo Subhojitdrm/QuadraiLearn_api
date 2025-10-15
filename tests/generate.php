@@ -12,9 +12,9 @@ require_once __DIR__ . '/../lib/auth.php'; // require_auth()
 require_once __DIR__ . '/../db.php';       // get_pdo()
 
 // -------------------- CONFIG --------------------
-const OPENROUTER_API_KEY = 'REPLACE_WITH_YOUR_OPENROUTER_KEY'; // <-- put your key
+const OPENROUTER_API_KEY = 'REPLACE_WITH_YOUR_OPENROUTER_KEY'; // put your key
 const OPENROUTER_URL     = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_MODEL      = 'alibaba/tongyi-deepresearch-30b-a3b:free'; // change if desired
+const DEFAULT_MODEL      = 'alibaba/tongyi-deepresearch-30b-a3b:free'; // adjust if desired
 
 // simple user-level rate limits (tune as needed)
 const RL_MAX_PER_MIN = 3;
@@ -47,9 +47,53 @@ function try_decode_json(string $s): ?array {
   $d = json_decode($s, true);
   return is_array($d) ? $d : null;
 }
+
+/**
+ * Salvage an array-of-objects that starts at $startArr within $s.
+ * Returns decoded array or null.
+ */
+function salvage_array_from(string $s, int $startArr): ?array {
+  $arr = substr($s, $startArr); // should start with '['
+  $depth = 0; $inStr = false; $esc = false;
+  $lastGoodObjectEnd = -1;
+  $len = strlen($arr);
+
+  for ($i=0; $i<$len; $i++) {
+    $ch = $arr[$i];
+    if ($inStr) {
+      if ($esc) { $esc = false; continue; }
+      if ($ch === '\\') { $esc = true; continue; }
+      if ($ch === '"') { $inStr = false; continue; }
+      continue;
+    } else {
+      if ($ch === '"') { $inStr = true; continue; }
+      if ($ch === '[' || $ch === '{') $depth++;
+      if ($ch === ']' || $ch === '}') {
+        $depth--;
+        // when we close an object and array depth is 1, remember its end
+        if ($ch === '}' && $depth === 1) $lastGoodObjectEnd = $i;
+      }
+    }
+  }
+
+  if ($lastGoodObjectEnd > 0) {
+    // Build a valid JSON array with all complete objects we saw
+    $inner = substr($arr, 1, $lastGoodObjectEnd - 1);
+    $inner = rtrim($inner, ", \r\n\t");
+    $salvaged = '[' . $inner . ']';
+    $d = try_decode_json($salvaged);
+    return $d ?? null;
+  }
+  return null;
+}
+
 /**
  * Extract the largest JSON object/array from a string.
- * If truncated, salvage by dropping the last incomplete object and closing the array.
+ * Supports:
+ *   - Raw array:       [ {...}, {...}, ... (truncated)
+ *   - Wrapper object:  { "questions": [ {...}, ... (truncated) ] } (truncated)
+ * If truncated, salvages up to last complete object and returns either the array
+ * or {"questions":[...]} depending on what was detectable.
  */
 function extract_or_salvage_json(string $raw): ?array {
   $s = strip_code_fences($raw);
@@ -58,58 +102,51 @@ function extract_or_salvage_json(string $raw): ?array {
   $d = try_decode_json($s);
   if ($d !== null) return $d;
 
-  // Locate first JSON start
+  // Locate first JSON starts
   $startObj = strpos($s, '{');
   $startArr = strpos($s, '[');
   if ($startObj === false && $startArr === false) return null;
 
-  $start = ($startArr !== false && ($startObj === false || $startArr < $startObj)) ? $startArr : $startObj;
-  $candidate = substr($s, $start);
-
-  // Heuristic 1: cut at last closing brace/bracket
-  $endBrace = strrpos($candidate, '}');
-  $endBracket = strrpos($candidate, ']');
-  if ($endBrace !== false || $endBracket !== false) {
-    $end = max($endBrace ?: -1, $endBracket ?: -1);
-    if ($end >= 0) {
-      $slice = substr($candidate, 0, $end + 1);
-      $d2 = try_decode_json($slice);
-      if ($d2 !== null) return $d2;
-    }
+  // If array appears first -> salvage array
+  if ($startArr !== false && ($startObj === false || $startArr < $startObj)) {
+    $arrDecoded = salvage_array_from($s, $startArr);
+    if ($arrDecoded !== null) return $arrDecoded;
   }
 
-  // Heuristic 2: salvage array-of-objects
-  if ($startArr !== false && ($startObj === false || $startArr < $startObj)) {
-    $arr = substr($s, $startArr); // starts with '['
-    $depth = 0; $inStr = false; $esc = false;
-    $lastGoodObjectEnd = -1;
-    $len = strlen($arr);
-    for ($i=0; $i<$len; $i++) {
-      $ch = $arr[$i];
-      if ($inStr) {
-        if ($esc) { $esc = false; continue; }
-        if ($ch === '\\') { $esc = true; continue; }
-        if ($ch === '"') { $inStr = false; continue; }
-        continue;
-      } else {
-        if ($ch === '"') { $inStr = true; continue; }
-        if ($ch === '[' || $ch === '{') $depth++;
-        if ($ch === ']' || $ch === '}') {
-          $depth--;
-          if ($ch === '}' && $depth === 1) $lastGoodObjectEnd = $i;
+  // If object appears first -> try to find a "questions": [ ... ] inside it
+  if ($startObj !== false) {
+    // Find "questions" and the '[' that follows it
+    if (preg_match('/"questions"\s*:\s*\[/', $s, $m, PREG_OFFSET_CAPTURE, $startObj)) {
+      // Position of the '[' after "questions":
+      $qPos = $m[0][1];
+      $openBracketPos = strpos($s, '[', $qPos);
+      if ($openBracketPos !== false) {
+        $arrDecoded = salvage_array_from($s, $openBracketPos);
+        if ($arrDecoded !== null) {
+          // Return wrapped object shape to match expected {questions:[...]}
+          return ['questions' => $arrDecoded];
         }
       }
     }
-    if ($lastGoodObjectEnd > 0) {
-      $inner = substr($arr, 1, $lastGoodObjectEnd - 1);
-      $inner = rtrim($inner, ", \r\n\t");
-      $salvaged = '[' . $inner . ']';
-      $d3 = try_decode_json($salvaged);
-      if ($d3 !== null) return $d3;
-      $wrapped = '{"questions":' . $salvaged . '}';
-      $d4 = try_decode_json($wrapped);
-      if ($d4 !== null) return $d4;
+
+    // Fallback: cut at last brace/bracket and try decode
+    $candidate = substr($s, $startObj);
+    $endBrace = strrpos($candidate, '}');
+    $endBracket = strrpos($candidate, ']');
+    if ($endBrace !== false || $endBracket !== false) {
+      $end = max($endBrace ?: -1, $endBracket ?: -1);
+      if ($end >= 0) {
+        $slice = substr($candidate, 0, $end + 1);
+        $d2 = try_decode_json($slice);
+        if ($d2 !== null) return $d2;
+      }
     }
+  }
+
+  // Final fallback: if we only detected an array somewhere later
+  if ($startArr !== false) {
+    $arrDecoded = salvage_array_from($s, $startArr);
+    if ($arrDecoded !== null) return $arrDecoded;
   }
 
   return null;
@@ -253,26 +290,41 @@ $payload = [
     ['role'=>'user',   'content'=>$userInstr],
   ],
   'temperature' => 0.2,
-  'max_tokens'  => 3800   // bumped to reduce truncation
+  'max_tokens'  => 6000   // bump to support more questions without truncation
+];
+
+$headers = [
+  'Content-Type: application/json',
+  'Authorization: Bearer '.OPENROUTER_API_KEY,
+  'HTTP-Referer: https://quadrailearn.quadravise.com',
+  'X-Title: QuadraiLearn'
 ];
 
 $ch = curl_init(OPENROUTER_URL);
 curl_setopt_array($ch, [
   CURLOPT_RETURNTRANSFER => true,
   CURLOPT_POST           => true,
-  CURLOPT_HTTPHEADER     => [
-    'Content-Type: application/json',
-    'Authorization: Bearer '.OPENROUTER_API_KEY
-  ],
-  CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_SLASHES)
+  CURLOPT_HTTPHEADER     => $headers,
+  CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_SLASHES),
+
+  CURLOPT_IPRESOLVE      => CURL_IPRESOLVE_V4,
+  CURLOPT_CONNECTTIMEOUT => 12,
+  CURLOPT_TIMEOUT        => 45,
+  CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+
+  CURLOPT_SSL_VERIFYPEER => true,
+  CURLOPT_SSL_VERIFYHOST => 2,
 ]);
 $resp = curl_exec($ch);
 $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 $curlErr = curl_error($ch);
 curl_close($ch);
 
-if ($resp === false || $http >= 500) {
-  out(502, ['ok'=>false, 'error'=>'openrouter_unavailable', 'detail'=>$curlErr ?: null]);
+if ($resp === false) {
+  out(502, ['ok'=>false, 'error'=>'openrouter_unreachable', 'detail'=>$curlErr]);
+}
+if ($http >= 400) {
+  out(502, ['ok'=>false, 'error'=>'openrouter_http_'.$http, 'body'=>substr($resp,0,600)]);
 }
 
 $data = json_decode($resp, true);
@@ -293,6 +345,7 @@ if (count($questions) === 0) {
   out(502, ['ok'=>false, 'error'=>'no_valid_questions', 'raw'=>substr($content, 0, 400)]);
 }
 if (count($questions) < $count) {
+  // Model truncated mid-way; we salvaged what we could but it's fewer than requested.
   out(502, ['ok'=>false, 'error'=>'insufficient_questions', 'got'=>count($questions), 'want'=>$count]);
 }
 
