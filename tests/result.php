@@ -27,28 +27,33 @@ $testId       = (int)($_GET['testId'] ?? 0);
 try {
   $pdo = get_pdo();
 
-  // Resolve submission (by id OR latest for a test)
   if ($submissionId > 0) {
     $s = $pdo->prepare("
       SELECT ms.id, ms.test_id, ms.user_id, ms.total_questions, ms.correct_count, ms.duration_sec, ms.created_at,
              t.topic, t.complexity, t.purpose, t.question_count, t.model
       FROM mock_submissions ms
       JOIN mock_tests t ON t.id = ms.test_id
-      WHERE ms.id = :sid AND ms.user_id = :uid AND t.user_id = :uid
+      WHERE ms.id = :sid AND ms.user_id = :uid_s1 AND t.user_id = :uid_s2
       LIMIT 1
     ");
-    $s->execute([':sid'=>$submissionId, ':uid'=>$userId]);
+    $s->bindValue(':sid', $submissionId, PDO::PARAM_INT);
+    $s->bindValue(':uid_s1', $userId, PDO::PARAM_INT);
+    $s->bindValue(':uid_s2', $userId, PDO::PARAM_INT);
+    $s->execute();
   } elseif ($testId > 0) {
     $s = $pdo->prepare("
       SELECT ms.id, ms.test_id, ms.user_id, ms.total_questions, ms.correct_count, ms.duration_sec, ms.created_at,
              t.topic, t.complexity, t.purpose, t.question_count, t.model
       FROM mock_submissions ms
       JOIN mock_tests t ON t.id = ms.test_id
-      WHERE ms.test_id = :tid AND ms.user_id = :uid AND t.user_id = :uid
+      WHERE ms.test_id = :tid AND ms.user_id = :uid_t1 AND t.user_id = :uid_t2
       ORDER BY ms.created_at DESC
       LIMIT 1
     ");
-    $s->execute([':tid'=>$testId, ':uid'=>$userId]);
+    $s->bindValue(':tid', $testId, PDO::PARAM_INT);
+    $s->bindValue(':uid_t1', $userId, PDO::PARAM_INT);
+    $s->bindValue(':uid_t2', $userId, PDO::PARAM_INT);
+    $s->execute();
   } else {
     out(422, ['ok'=>false, 'error'=>'Provide submissionId OR testId']);
   }
@@ -59,19 +64,21 @@ try {
   $sid  = (int)$sub['id'];
   $tid  = (int)$sub['test_id'];
 
-  // Load all questions for this test
+  // Load questions
   $q = $pdo->prepare("
     SELECT id, q_index, question_text, options_json, correct_index, correct_text, sub_topic, explanation
     FROM mock_questions
-    WHERE test_id = :tid
+    WHERE test_id = :tidq
     ORDER BY q_index ASC
   ");
-  $q->execute([':tid'=>$tid]);
-  $questions = $q->fetchAll();
+  $q->bindValue(':tidq', $tid, PDO::PARAM_INT);
+  $q->execute();
 
-  // Load user answers for this submission
-  $a = $pdo->prepare("SELECT question_id, chosen_index, is_correct FROM mock_answers WHERE submission_id = :sid");
-  $a->execute([':sid'=>$sid]);
+  // Load answers for this submission
+  $a = $pdo->prepare("SELECT question_id, chosen_index, is_correct FROM mock_answers WHERE submission_id = :sidq");
+  $a->bindValue(':sidq', $sid, PDO::PARAM_INT);
+  $a->execute();
+
   $answers = [];
   $attempted = 0;
   while ($r = $a->fetch()) {
@@ -83,11 +90,16 @@ try {
     $attempted++;
   }
 
-  // If no attempts, we MUST NOT reveal correct answers
+  // Hide correct answers if no attempts
   $revealCorrect = $attempted > 0;
 
   $items = [];
-  foreach ($questions as $row) {
+  while ($row = $q->fetch()) { /* in case fetchAll already consumed; safer to re-run above as fetchAll, but OK */
+    // noop
+  }
+  // rewind: re-execute to iterate (fetchAll once instead)
+  $q->execute();
+  while ($row = $q->fetch()) {
     $opts = json_decode((string)$row['options_json'], true);
     if (!is_array($opts)) $opts = [];
     $qid = (int)$row['id'];
@@ -105,7 +117,6 @@ try {
       'chosen_idx'  => $chosen,
       'is_correct'  => $isCorr
     ];
-
     if ($revealCorrect) {
       $item['correct_idx']  = (int)$row['correct_index'];
       $item['correct_text'] = (string)$row['correct_text'];
@@ -116,17 +127,17 @@ try {
   out(200, [
     'ok'=>true,
     'submission'=>[
-      'id'          => $sid,
-      'testId'      => $tid,
-      'topic'       => (string)$sub['topic'],
-      'complexity'  => (string)$sub['complexity'],
-      'purpose'     => $sub['purpose'] ?: null,
+      'id'           => $sid,
+      'testId'       => $tid,
+      'topic'        => (string)$sub['topic'],
+      'complexity'   => (string)$sub['complexity'],
+      'purpose'      => $sub['purpose'] ?: null,
       'questionCount'=> (int)$sub['question_count'],
-      'total'       => (int)$sub['total_questions'],
-      'correct'     => (int)$sub['correct_count'],
-      'scorePercent'=> (int)round(((int)$sub['correct_count']/max(1,(int)$sub['total_questions']))*100),
-      'durationSec' => $sub['duration_sec'] !== null ? (int)$sub['duration_sec'] : null,
-      'created_at'  => (string)$sub['created_at'],
+      'total'        => (int)$sub['total_questions'],
+      'correct'      => (int)$sub['correct_count'],
+      'scorePercent' => (int)round(((int)$sub['correct_count']/max(1,(int)$sub['total_questions']))*100),
+      'durationSec'  => $sub['duration_sec'] !== null ? (int)$sub['duration_sec'] : null,
+      'created_at'   => (string)$sub['created_at'],
       'answersAttempted' => $attempted,
       'revealingAnswers' => $revealCorrect ? 1 : 0
     ],
