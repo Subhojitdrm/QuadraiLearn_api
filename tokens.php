@@ -11,10 +11,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-require_once __DIR__ . '/../lib/auth.php';    // For require_auth()
-require_once __DIR__ . '/../db.php';          // For get_pdo()
-require_once __DIR__ . '/../lib/tokens.php';  // For get_user_token_balance()
-require_once __DIR__ . '/../config.php';      // For DEBUG constant
+require_once __DIR__ . '/../../lib/auth.php';    // For require_auth()
+require_once __DIR__ . '/../../db.php';          // For get_pdo()
+require_once __DIR__ . '/../../lib/tokens.php';  // For get_user_token_balance()
+require_once __DIR__ . '/../../config.php';      // For DEBUG constant
 
 function out(int $code, array $payload): void {
     http_response_code($code);
