@@ -1,64 +1,92 @@
 <?php
-// lib/tokens.php
-
 declare(strict_types=1);
 
 /**
- * Adds or deducts tokens and logs the transaction.
- *
- * @param PDO $pdo The database connection object.
- * @param int $user_id The ID of the user.
- * @param int $amount The number of tokens to add (positive) or deduct (negative).
- * @param string $action A description of the action (e.g., 'generate_book', 'initial_signup_bonus').
- * @param string $entity_type Type of entity related to the transaction (e.g., 'book', 'user').
- * @param int|null $entity_id ID of the related entity.
- * @param string $type The category of the transaction ('recharge', 'deduction', 'bonus', etc.).
- * @return bool True on success, false on failure (rollback).
+ * Token helpers. IMPORTANT:
+ * - Use the caller's $pdo (same transaction).
+ * - Do NOT begin/commit/rollback here.
+ * - Return true on success, false on a safe, expected failure.
  */
-function add_tokens(PDO $pdo, int $user_id, int $amount, string $action, string $entity_type, ?int $entity_id, string $type): bool
-{
-    // Ensure the amount is non-zero
-    if ($amount === 0) return true;
-    
-    // Ensure the user_id is consistent with the BIGINT UNSIGNED type in the database
-    $userIdBigInt = $user_id;
 
-    try {
-        $pdo->beginTransaction();
+/**
+ * Adds (or subtracts) tokens to a user's balance and records a ledger row.
+ *
+ * @param PDO    $pdo         Existing PDO (transaction may already be open).
+ * @param int    $userId      Target user id (must exist in users.id).
+ * @param int    $delta       Positive to credit, negative to debit.
+ * @param string $reason      Short machine-readable reason (e.g., 'initial_signup_bonus').
+ * @param string $actorType   Who did it? e.g. 'user','system','admin'
+ * @param int    $actorId     ID of the actor (can equal $userId if self).
+ * @param string $kind        'bonus','purchase','spend','adjustment', etc.
+ *
+ * @return bool               true if success, false if failed (e.g., no such user or rowcount 0)
+ */
+function add_tokens(
+    PDO $pdo,
+    int $userId,
+    int $delta,
+    string $reason,
+    string $actorType,
+    int $actorId,
+    string $kind
+): bool {
+    // Ensure the user exists (defensive, helps catch FK issues early)
+    $chk = $pdo->prepare('SELECT 1 FROM users WHERE id = :u LIMIT 1');
+    $chk->execute([':u' => $userId]);
+    if (!$chk->fetchColumn()) {
+        return false; // unknown user -> caller may 500/rollback
+    }
 
-        // 1. Update user_tokens balance (INSERT OR UPDATE)
-        // Note: The SQL assumes the corrected BIGINT UNSIGNED for user_id is used.
-        $stmt_balance = $pdo->prepare(
-            'INSERT INTO user_tokens (user_id, balance)
-             VALUES (:uid, :amount)
-             ON DUPLICATE KEY UPDATE balance = balance + :amount_update'
-        );
-        $stmt_balance->execute([
-            ':uid' => $userIdBigInt,
-            ':amount' => $amount,
-            ':amount_update' => $amount
-        ]);
+    // Ensure a balance row exists (idempotent upsert)
+    $ins = $pdo->prepare(
+        'INSERT INTO token_balances (user_id, balance)
+         VALUES (:u, 0)
+         ON DUPLICATE KEY UPDATE balance = balance'
+    );
+    $ins->execute([':u' => $userId]);
 
-        // 2. Log the transaction
-        $stmt_log = $pdo->prepare(
-            'INSERT INTO token_transactions (user_id, amount, type, action, entity_type, entity_id)
-             VALUES (:uid, :amount, :type, :action, :entity_type, :entity_id)'
-        );
-        $stmt_log->execute([
-            ':uid' => $userIdBigInt,
-            ':amount' => $amount,
-            ':type' => $type,
-            ':action' => $action,
-            ':entity_type' => $entity_type,
-            ':entity_id' => $entity_id
-        ]);
+    // Apply delta; guard against going negative if you want (optional)
+    // If you want "no negative balances", uncomment the check below.
+    // $pre = $pdo->prepare('SELECT balance FROM token_balances WHERE user_id = :u FOR UPDATE');
+    // $pre->execute([':u' => $userId]);
+    // $cur = (int)$pre->fetchColumn();
+    // if ($cur + $delta < 0) return false;
 
-        $pdo->commit();
-        return true;
-    } catch (Throwable $e) {
-        $pdo->rollBack();
-        // In a real application, you should log the exception ($e) details here.
-        error_log("Token transaction failed for user $user_id: " . $e->getMessage());
+    $upd = $pdo->prepare(
+        'UPDATE token_balances
+         SET balance = balance + :d
+         WHERE user_id = :u'
+    );
+    $upd->execute([':d' => $delta, ':u' => $userId]);
+
+    if ($upd->rowCount() !== 1) {
+        // Should always affect exactly one row
         return false;
     }
+
+    // Ledger (audit trail)
+    $led = $pdo->prepare(
+        'INSERT INTO token_ledger
+           (user_id, delta, reason, actor_type, actor_id, kind, created_at)
+         VALUES
+           (:u, :d, :r, :at, :aid, :k, NOW())'
+    );
+    $led->execute([
+        ':u'   => $userId,
+        ':d'   => $delta,
+        ':r'   => $reason,
+        ':at'  => $actorType,
+        ':aid' => $actorId,
+        ':k'   => $kind,
+    ]);
+
+    return true;
+}
+
+/** Helper (optional): current balance */
+function get_token_balance(PDO $pdo, int $userId): ?int {
+    $stmt = $pdo->prepare('SELECT balance FROM token_balances WHERE user_id = :u');
+    $stmt->execute([':u' => $userId]);
+    $val = $stmt->fetchColumn();
+    return $val === false ? null : (int)$val;
 }
