@@ -144,7 +144,11 @@ try {
             'bonus'
         );
         
-        // Optionally, handle $token_success == false here if the token transaction fails.
+        // Handle token award failure as a server error, as it's a critical part of registration.
+        if (!$token_success) {
+            // This will trigger a 500 error if token awarding fails, making it explicit.
+            json_out(500, ['ok' => false, 'error' => 'Failed to award initial tokens. Please try again.']);
+        }
     }
 
     json_out(201, [
