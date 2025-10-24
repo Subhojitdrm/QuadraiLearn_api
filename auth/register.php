@@ -1,71 +1,97 @@
 <?php
 declare(strict_types=1);
 
-header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');                 // allow your UI
-header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
+/**
+ * Register endpoint (atomic, with diagnostics)
+ * - Requires: config.php, db.php (get_pdo), lib/tokens.php (add_tokens)
+ * - Set DEBUG + LOG_FILE in config.php to get detailed diagnostic JSON/logs.
+ */
 
-// Handle preflight
+header('Content-Type: application/json; charset=utf-8');
+header('Access-Control-Allow-Origin: *'); // adjust if you prefer a specific origin
+header('Access-Control-Allow-Methods: POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+
+// Handle CORS preflight
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
     exit;
 }
 
-require __DIR__ . '/../db.php'; // uses your existing db.php & config.php
-require_once __DIR__ . '/../config.php'; // Ensure config is loaded first for the constant
-require_once __DIR__ . '/../lib/tokens.php'; // Token function required here
+/** Load order: config BEFORE db */
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../lib/tokens.php';
 
-// Define the number of tokens for new user signup.
+/** Tokens to award on successful signup */
 const INITIAL_SIGNUP_TOKENS = 20;
 
-// Helper for logging if DEBUG is on
+/** Debug logger */
 function log_debug(string $message): void {
-    if (defined('DEBUG') && DEBUG && defined('LOG_FILE')) error_log(date('[Y-m-d H:i:s] ') . $message . "\n", 3, LOG_FILE);
+    if (defined('DEBUG') && DEBUG && defined('LOG_FILE') && LOG_FILE) {
+        error_log(date('[Y-m-d H:i:s] ') . $message . "\n", 3, LOG_FILE);
+    }
 }
 
+/** JSON output helper */
 function json_out(int $code, array $data): void {
     http_response_code($code);
     echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
+/**
+ * Diagnostic output:
+ * - When DEBUG=true, returns { ok:false, stage, detail? } to caller.
+ * - When DEBUG=false, returns generic server error.
+ */
+function diag_json_out(int $code, string $stage, $extra = null): void {
+    if (defined('DEBUG') && DEBUG) {
+        $payload = ['ok' => false, 'stage' => $stage];
+        if ($extra !== null) $payload['detail'] = $extra;
+        json_out($code, $payload);
+    } else {
+        json_out($code, ['ok' => false, 'error' => 'server error']);
+    }
+}
+
+/** Read JSON body safely */
 function body_json(): array {
     $raw = file_get_contents('php://input');
     $data = json_decode($raw, true);
     return is_array($data) ? $data : [];
 }
 
-log_debug("--- Register endpoint hit ---");
+log_debug('--- Register endpoint hit ---');
 
 $input = body_json();
 
 /**
  * Expected payload keys:
- * firstName (required)
- * lastName (required)
- * username (required)
- * email (required)
- * interestedAreas (optional array of strings)
- * primaryStudyNeed (optional string)
- * password (required)
- * confirmPassword (required)
+ * - firstName (required)
+ * - lastName  (required)
+ * - username  (required)
+ * - email     (required, valid)
+ * - interestedAreas (optional array of strings)
+ * - primaryStudyNeed (optional string)
+ * - password (required)
+ * - confirmPassword (required, matches, min 8)
  */
 
-log_debug("Request Body: " . json_encode($input));
+log_debug('Request Body: ' . json_encode($input));
 
 $errors = [];
 
-// Basic validation
 $firstName = trim((string)($input['firstName'] ?? ''));
 $lastName  = trim((string)($input['lastName'] ?? ''));
 $username  = trim((string)($input['username'] ?? ''));
 $email     = trim((string)($input['email'] ?? ''));
-$areas     = $input['interestedAreas'] ?? null;       // expect array or null
+$areas     = $input['interestedAreas'] ?? null;        // expect array or null
 $primary   = trim((string)($input['primaryStudyNeed'] ?? ''));
 $pass      = (string)($input['password'] ?? '');
 $confirm   = (string)($input['confirmPassword'] ?? '');
 
+// Basic validation
 if ($firstName === '') $errors['firstName'] = 'First name is required';
 if ($lastName === '')  $errors['lastName']  = 'Last name is required';
 if ($username === '')  $errors['username']  = 'Username is required';
@@ -84,7 +110,7 @@ if ($pass === '' || $confirm === '') {
     $errors['password'] = 'Password must be at least 8 characters';
 }
 
-// Normalize interestedAreas → array of strings
+// Normalize interestedAreas
 $interests = null;
 if (is_array($areas)) {
     $clean = [];
@@ -98,84 +124,119 @@ if (is_array($areas)) {
 }
 
 if (!empty($errors)) {
-    log_debug("Validation failed: " . json_encode($errors));
+    log_debug('Validation failed: ' . json_encode($errors));
     json_out(422, ['ok' => false, 'errors' => $errors]);
 }
 
 try {
-    log_debug("Validation passed. Connecting to database...");
+    // Connect and force exception mode
+    log_debug('Connecting to database...');
     $pdo = get_pdo();
-    log_debug("Database connection successful.");
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    log_debug('Database connection OK');
 
-    // Check uniqueness for username & email
-    $stmt = $pdo->prepare('SELECT username, email FROM users WHERE username = :u OR email = :e LIMIT 1');
-    $stmt->execute([':u' => $username, ':e' => $email]);
-    if ($row = $stmt->fetch()) {
-        if (strcasecmp($row['email'], $email) === 0) {
-            $errors['email'] = 'Email already in use';
-        }
-        if (strcasecmp($row['username'], $username) === 0) {
-            $errors['username'] = 'Username already taken';
-        }
-        log_debug("Conflict error: " . json_encode($errors));
-        json_out(409, ['ok' => false, 'errors' => $errors]);
+    // Pre-check uniqueness
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT username, email
+             FROM users
+             WHERE username = :u OR email = :e
+             LIMIT 1'
+        );
+        $stmt->execute([':u' => $username, ':e' => $email]);
+    } catch (Throwable $e) {
+        diag_json_out(500, 'precheck_query_failed', $e->getMessage());
     }
 
-    log_debug("Username and email are unique. Proceeding with user creation.");
+    if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $conflicts = [];
+        if (isset($row['email']) && strcasecmp($row['email'], $email) === 0) {
+            $conflicts['email'] = 'Email already in use';
+        }
+        if (isset($row['username']) && strcasecmp($row['username'], $username) === 0) {
+            $conflicts['username'] = 'Username already taken';
+        }
+        log_debug('Conflict: ' . json_encode($conflicts));
+        json_out(409, ['ok' => false, 'errors' => $conflicts]);
+    }
 
-    // Hash password
+    // Begin transaction (atomic insert + token award)
+    try {
+        $pdo->beginTransaction();
+    } catch (Throwable $e) {
+        diag_json_out(500, 'begin_tx_failed', $e->getMessage());
+    }
+
+    // Insert user
     $hash = password_hash($pass, PASSWORD_DEFAULT);
-
-    // Prepare JSON for interests (MySQL JSON or text)
     $interestsJson = $interests !== null ? json_encode($interests, JSON_UNESCAPED_UNICODE) : null;
 
-    log_debug("Inserting new user into database...");
+    try {
+        $sql = 'INSERT INTO users
+                (first_name, last_name, username, email, interests, primary_study_need, password_hash)
+                VALUES (:first, :last, :user, :email, :interests, :primary, :ph)';
+        $stmt = $pdo->prepare($sql);
 
-    $sql = 'INSERT INTO users (
-                first_name, last_name, username, email, interests, primary_study_need, password_hash
-            ) VALUES (
-                :first, :last, :user, :email, :interests, :primary, :ph
-            )';
+        $stmt->bindValue(':first', $firstName, PDO::PARAM_STR);
+        $stmt->bindValue(':last',  $lastName,  PDO::PARAM_STR);
+        $stmt->bindValue(':user',  $username,  PDO::PARAM_STR);
+        $stmt->bindValue(':email', $email,     PDO::PARAM_STR);
 
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute([
-        ':first'     => $firstName,
-        ':last'      => $lastName,
-        ':user'      => $username,
-        ':email'     => $email,
-        ':interests' => $interestsJson,        // MySQL will cast valid JSON string into JSON column
-        ':primary'   => $primary !== '' ? $primary : null,
-        ':ph'        => $hash,
-    ]);
-
-    $userId = (int)$pdo->lastInsertId();
-    log_debug("User created with ID: $userId");
-
-    // The line below now awards 20 tokens because INITIAL_SIGNUP_TOKENS is defined as 20.
-    if (defined('INITIAL_SIGNUP_TOKENS') && INITIAL_SIGNUP_TOKENS > 0) {
-        $token_amount = INITIAL_SIGNUP_TOKENS;
-        log_debug("Attempting to award $token_amount initial tokens to user ID: $userId");
-        // The add_tokens function is used to safely update the balance and log the transaction.
-        $token_success = add_tokens(
-            $pdo,
-            $userId,
-            $token_amount,
-            'initial_signup_bonus',
-            'user',
-            $userId,
-            'bonus'
-        );
-        
-        // Handle token award failure as a server error, as it's a critical part of registration.
-        if (!$token_success) {
-            log_debug("CRITICAL: add_tokens function returned false. This is the cause of the 500 error.");
-            // This will trigger a 500 error if token awarding fails, making it explicit.
-            json_out(500, ['ok' => false, 'error' => 'Failed to award initial tokens. Please try again.']);
+        if ($interestsJson === null) {
+            $stmt->bindValue(':interests', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':interests', $interestsJson, PDO::PARAM_STR);
         }
-        log_debug("Successfully awarded initial tokens.");
+
+        if ($primary === '') {
+            $stmt->bindValue(':primary', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':primary', $primary, PDO::PARAM_STR);
+        }
+
+        $stmt->bindValue(':ph', $hash, PDO::PARAM_STR);
+        $stmt->execute();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        $code = ($e instanceof PDOException) ? $e->getCode() : 'non_pdo';
+        diag_json_out(500, 'user_insert_failed', ['code' => $code, 'msg' => $e->getMessage()]);
     }
 
-    log_debug("Registration process complete. Sending 201 Created response.");
+    $userId = (int)$pdo->lastInsertId();
+    log_debug("User inserted with ID {$userId}");
+
+    // Award initial tokens (using SAME $pdo, no commit inside add_tokens)
+    if (INITIAL_SIGNUP_TOKENS > 0) {
+        try {
+            $ok = add_tokens(
+                $pdo,
+                $userId,
+                INITIAL_SIGNUP_TOKENS,
+                'initial_signup_bonus',
+                'user',
+                $userId,
+                'bonus'
+            );
+            if (!$ok) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                diag_json_out(500, 'add_tokens_returned_false');
+            }
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $code = ($e instanceof PDOException) ? $e->getCode() : 'non_pdo';
+            diag_json_out(500, 'add_tokens_threw', ['code' => $code, 'msg' => $e->getMessage()]);
+        }
+        log_debug('Initial tokens awarded');
+    }
+
+    // Commit transaction
+    try {
+        $pdo->commit();
+    } catch (Throwable $e) {
+        diag_json_out(500, 'commit_failed', $e->getMessage());
+    }
+
+    // Success response
     json_out(201, [
         'ok' => true,
         'message' => 'Registration successful, and ' . INITIAL_SIGNUP_TOKENS . ' tokens awarded.',
@@ -192,24 +253,22 @@ try {
     ]);
 
 } catch (PDOException $e) {
-    $error_message = $e->getMessage().' @ '.basename($e->getFile()).':'.$e->getLine();
-    log_debug("PDOException caught: " . $error_message);
-
-    // Handle duplicate keys (in case race conditions hit unique indexes)
-    if ((int)$e->getCode() === 23000) {
+    // NOTE: PDO::getCode() returns SQLSTATE strings like '23000'
+    if ($e->getCode() === '23000') {
         json_out(409, ['ok' => false, 'errors' => ['unique' => 'Email or username already exists']]);
     }
-    // Only show detailed error in DEBUG mode (assuming DEBUG is defined in config)
+    if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
     $msg = (defined('DEBUG') && DEBUG)
-        ? $error_message
+        ? ($e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine())
         : 'database error';
+    log_debug('PDOException: ' . $msg);
     json_out(500, ['ok' => false, 'error' => $msg]);
 
 } catch (Throwable $e) {
-    $error_message = $e->getMessage().' @ '.basename($e->getFile()).':'.$e->getLine();
-    log_debug("Throwable caught: " . $error_message);
+    if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
     $msg = (defined('DEBUG') && DEBUG)
-        ? $error_message
+        ? ($e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine())
         : 'server error';
+    log_debug('Throwable: ' . $msg);
     json_out(500, ['ok' => false, 'error' => $msg]);
 }
