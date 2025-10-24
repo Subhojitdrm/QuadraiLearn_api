@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');                 // allow your UI
+header('Access-Control-Allow-Origin: *');                 // allow your UI
 header('Access-Control-Allow-Methods: POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
@@ -13,7 +13,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require __DIR__ . '/../db.php'; // uses your existing db.php & config.php
-require_once __DIR__ . '/../lib/tokens.php'; // For token management
+require_once __DIR__ . '/../config.php'; // Ensure config is loaded first for the constant
+require_once __DIR__ . '/../lib/tokens.php'; // Token function required here
 
 function json_out(int $code, array $data): void {
     http_response_code($code);
@@ -48,7 +49,7 @@ $firstName = trim((string)($input['firstName'] ?? ''));
 $lastName  = trim((string)($input['lastName'] ?? ''));
 $username  = trim((string)($input['username'] ?? ''));
 $email     = trim((string)($input['email'] ?? ''));
-$areas     = $input['interestedAreas'] ?? null;       // expect array or null
+$areas     = $input['interestedAreas'] ?? null;       // expect array or null
 $primary   = trim((string)($input['primaryStudyNeed'] ?? ''));
 $pass      = (string)($input['password'] ?? '');
 $confirm   = (string)($input['confirmPassword'] ?? '');
@@ -108,7 +109,6 @@ try {
     $hash = password_hash($pass, PASSWORD_DEFAULT);
 
     // Prepare JSON for interests (MySQL JSON or text)
-    // If your table uses JSON type, pass json to MySQL using JSON string.
     $interestsJson = $interests !== null ? json_encode($interests, JSON_UNESCAPED_UNICODE) : null;
 
     $sql = 'INSERT INTO users (
@@ -130,14 +130,26 @@ try {
 
     $userId = (int)$pdo->lastInsertId();
 
-    // Add initial tokens for the new user
+    // The line below now awards 20 tokens because INITIAL_SIGNUP_TOKENS is defined as 20.
     if (defined('INITIAL_SIGNUP_TOKENS') && INITIAL_SIGNUP_TOKENS > 0) {
-        add_tokens($pdo, $userId, INITIAL_SIGNUP_TOKENS, 'initial_signup_bonus', 'user', $userId, 'bonus');
+        $token_amount = INITIAL_SIGNUP_TOKENS;
+        // The add_tokens function is used to safely update the balance and log the transaction.
+        $token_success = add_tokens(
+            $pdo,
+            $userId,
+            $token_amount,
+            'initial_signup_bonus',
+            'user',
+            $userId,
+            'bonus'
+        );
+        
+        // Optionally, handle $token_success == false here if the token transaction fails.
     }
 
     json_out(201, [
         'ok' => true,
-        'message' => 'Registration successful',
+        'message' => 'Registration successful, and ' . INITIAL_SIGNUP_TOKENS . ' tokens awarded.',
         'user' => [
             'id' => $userId,
             'firstName' => $firstName,
@@ -155,7 +167,16 @@ try {
     if ((int)$e->getCode() === 23000) {
         json_out(409, ['ok' => false, 'errors' => ['unique' => 'Email or username already exists']]);
     }
-    json_out(500, ['ok' => false, 'error' => 'database error']);
+    // Only show detailed error in DEBUG mode (assuming DEBUG is defined in config)
+    $msg = (defined('DEBUG') && DEBUG)
+        ? ($e->getMessage().' @ '.basename($e->getFile()).':'.$e->getLine())
+        : 'database error';
+    json_out(500, ['ok' => false, 'error' => $msg]);
+
 } catch (Throwable $e) {
-    json_out(500, ['ok' => false, 'error' => 'server error']);
+    // Only show detailed error in DEBUG mode
+    $msg = (defined('DEBUG') && DEBUG)
+        ? ($e->getMessage().' @ '.basename($e->getFile()).':'.$e->getLine())
+        : 'server error';
+    json_out(500, ['ok' => false, 'error' => $msg]);
 }

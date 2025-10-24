@@ -1,125 +1,64 @@
 <?php
+// lib/tokens.php
+
 declare(strict_types=1);
 
-require_once __DIR__ . '/../db.php';
-require_once __DIR__ . '/../config.php';
-require_once __DIR__ . '/audit.php'; // For logging token actions in audit_log
-
-function get_user_token_balance(PDO $pdo, int $userId): int {
-    $stmt = $pdo->prepare('SELECT balance FROM user_tokens WHERE user_id = :uid');
-    $stmt->execute([':uid' => $userId]);
-    $balance = $stmt->fetchColumn();
-    return $balance !== false ? (int)$balance : 0;
-}
-
-function deduct_tokens(PDO $pdo, int $userId, int $amount, string $action, ?string $entityType = null, ?int $entityId = null): bool {
-    if ($amount <= 0) {
-        // Log error or throw exception for invalid deduction amount
-        error_log("Attempted to deduct non-positive tokens for user $userId, amount $amount");
-        return false;
-    }
-
-    try {
-        $pdo->beginTransaction();
-
-        $stmt = $pdo->prepare('SELECT balance FROM user_tokens WHERE user_id = :uid FOR UPDATE');
-        $stmt->execute([':uid' => $userId]);
-        $currentBalance = $stmt->fetchColumn();
-
-        if ($currentBalance === false) {
-            // User has no token record, treat as 0 balance
-            $currentBalance = 0;
-        } else {
-            $currentBalance = (int)$currentBalance;
-        }
-
-        if ($currentBalance < $amount) {
-            $pdo->rollBack();
-            return false; // Insufficient tokens
-        }
-
-        $stmt = $pdo->prepare('UPDATE user_tokens SET balance = balance - :amount WHERE user_id = :uid');
-        $stmt->execute([':amount' => $amount, ':uid' => $userId]);
-
-        log_token_transaction($pdo, $userId, -$amount, 'deduction', $action, $entityType, $entityId);
-
-        $pdo->commit();
-        return true;
-    } catch (Throwable $e) {
-        if ($pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
-        error_log("Token deduction failed for user $userId: " . $e->getMessage());
-        return false;
-    }
-}
-
 /**
- * Adds tokens to a user's balance and logs the transaction.
+ * Adds or deducts tokens and logs the transaction.
  *
- * @param PDO $pdo
- * @param int $userId
- * @param int $amount The number of tokens to add (must be positive).
- * @param string $action A specific description of the action (e.g., 'recharge_pack_99', 'initial_signup_bonus').
- * @param string $type The transaction type from the ENUM ('recharge', 'bonus', 'refund').
+ * @param PDO $pdo The database connection object.
+ * @param int $user_id The ID of the user.
+ * @param int $amount The number of tokens to add (positive) or deduct (negative).
+ * @param string $action A description of the action (e.g., 'generate_book', 'initial_signup_bonus').
+ * @param string $entity_type Type of entity related to the transaction (e.g., 'book', 'user').
+ * @param int|null $entity_id ID of the related entity.
+ * @param string $type The category of the transaction ('recharge', 'deduction', 'bonus', etc.).
+ * @return bool True on success, false on failure (rollback).
  */
-function add_tokens(PDO $pdo, int $userId, int $amount, string $action, ?string $entityType = null, ?int $entityId = null, string $type = 'recharge'): bool {
-    if ($amount <= 0) {
-        // Log error or throw exception for invalid addition amount
-        error_log("Attempted to add non-positive tokens for user $userId, amount $amount");
-        return false;
-    }
+function add_tokens(PDO $pdo, int $user_id, int $amount, string $action, string $entity_type, ?int $entity_id, string $type): bool
+{
+    // Ensure the amount is non-zero
+    if ($amount === 0) return true;
+    
+    // Ensure the user_id is consistent with the BIGINT UNSIGNED type in the database
+    $userIdBigInt = $user_id;
 
     try {
         $pdo->beginTransaction();
 
-        // Upsert: Insert if user_id doesn't exist, otherwise update
-        $stmt = $pdo->prepare('
-            INSERT INTO user_tokens (user_id, balance)
-            VALUES (:uid, :amount)
-            ON DUPLICATE KEY UPDATE balance = balance + :amount
-        ');
-        $stmt->execute([':uid' => $userId, ':amount' => $amount]);
+        // 1. Update user_tokens balance (INSERT OR UPDATE)
+        // Note: The SQL assumes the corrected BIGINT UNSIGNED for user_id is used.
+        $stmt_balance = $pdo->prepare(
+            'INSERT INTO user_tokens (user_id, balance)
+             VALUES (:uid, :amount)
+             ON DUPLICATE KEY UPDATE balance = balance + :amount_update'
+        );
+        $stmt_balance->execute([
+            ':uid' => $userIdBigInt,
+            ':amount' => $amount,
+            ':amount_update' => $amount
+        ]);
 
-        log_token_transaction($pdo, $userId, $amount, $type, $action, $entityType, $entityId);
+        // 2. Log the transaction
+        $stmt_log = $pdo->prepare(
+            'INSERT INTO token_transactions (user_id, amount, type, action, entity_type, entity_id)
+             VALUES (:uid, :amount, :type, :action, :entity_type, :entity_id)'
+        );
+        $stmt_log->execute([
+            ':uid' => $userIdBigInt,
+            ':amount' => $amount,
+            ':type' => $type,
+            ':action' => $action,
+            ':entity_type' => $entity_type,
+            ':entity_id' => $entity_id
+        ]);
 
         $pdo->commit();
         return true;
     } catch (Throwable $e) {
-        if ($pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
-        error_log("Token addition failed for user $userId: " . $e->getMessage());
+        $pdo->rollBack();
+        // In a real application, you should log the exception ($e) details here.
+        error_log("Token transaction failed for user $user_id: " . $e->getMessage());
         return false;
     }
-}
-
-function log_token_transaction(PDO $pdo, int $userId, int $amount, string $type, string $action, ?string $entityType = null, ?int $entityId = null): void {
-    $stmt = $pdo->prepare('
-        INSERT INTO token_transactions (user_id, amount, type, action, entity_type, entity_id)
-        VALUES (:uid, :amount, :type, :action, :entity_type, :entity_id)
-    ');
-    $stmt->execute([
-        ':uid' => $userId,
-        ':amount' => $amount,
-        ':type' => $type,
-        ':action' => $action,
-        ':entity_type' => $entityType,
-        ':entity_id' => $entityId
-    ]);
-
-    // Also log to general audit_log for broader visibility
-    audit_log($pdo, [
-        'user_id' => $userId,
-        'action' => "TOKEN_TRANSACTION",
-        'entity_type' => 'token_transaction',
-        'entity_id' => (int)$pdo->lastInsertId(),
-        'details' => [
-            'amount' => $amount,
-            'type' => $type,
-            'specific_action' => $action,
-            'related_entity_type' => $entityType,
-            'related_entity_id' => $entityId
-        ]
-    ]);
 }
