@@ -132,7 +132,7 @@ try {
 
     // Add initial tokens for the new user
     if (defined('INITIAL_SIGNUP_TOKENS') && INITIAL_SIGNUP_TOKENS > 0) {
-        add_tokens($pdo, $userId, INITIAL_SIGNUP_TOKENS, 'initial_signup_bonus', 'user', $userId);
+        add_tokens($pdo, $userId, INITIAL_SIGNUP_TOKENS, 'initial_signup_bonus', 'user', $userId, 'bonus');
     }
 
     json_out(201, [

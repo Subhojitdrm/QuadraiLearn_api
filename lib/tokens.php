@@ -54,7 +54,16 @@ function deduct_tokens(PDO $pdo, int $userId, int $amount, string $action, ?stri
     }
 }
 
-function add_tokens(PDO $pdo, int $userId, int $amount, string $action, ?string $entityType = null, ?int $entityId = null): bool {
+/**
+ * Adds tokens to a user's balance and logs the transaction.
+ *
+ * @param PDO $pdo
+ * @param int $userId
+ * @param int $amount The number of tokens to add (must be positive).
+ * @param string $action A specific description of the action (e.g., 'recharge_pack_99', 'initial_signup_bonus').
+ * @param string $type The transaction type from the ENUM ('recharge', 'bonus', 'refund').
+ */
+function add_tokens(PDO $pdo, int $userId, int $amount, string $action, ?string $entityType = null, ?int $entityId = null, string $type = 'recharge'): bool {
     if ($amount <= 0) {
         // Log error or throw exception for invalid addition amount
         error_log("Attempted to add non-positive tokens for user $userId, amount $amount");
@@ -72,7 +81,7 @@ function add_tokens(PDO $pdo, int $userId, int $amount, string $action, ?string 
         ');
         $stmt->execute([':uid' => $userId, ':amount' => $amount]);
 
-        log_token_transaction($pdo, $userId, $amount, 'recharge', $action, $entityType, $entityId);
+        log_token_transaction($pdo, $userId, $amount, $type, $action, $entityType, $entityId);
 
         $pdo->commit();
         return true;
