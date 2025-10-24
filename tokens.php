@@ -11,9 +11,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-echo json_encode([
-    'ok' => true,
-    'message' => 'Tokens endpoint test successful!',
-    'timestamp' => time()
-], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-exit;
+require_once __DIR__ . '/../lib/auth.php';    // For require_auth()
+require_once __DIR__ . '/../db.php';          // For get_pdo()
+require_once __DIR__ . '/../lib/tokens.php';  // For get_user_token_balance()
+require_once __DIR__ . '/../config.php';      // For DEBUG constant
+
+function out(int $code, array $payload): void {
+    http_response_code($code);
+    echo json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+// Authenticate the user
+$claims = require_auth();
+$userId = (int)($claims['sub'] ?? 0);
+
+if ($userId <= 0) {
+    out(401, ['ok' => false, 'error' => 'unauthorized']);
+}
+
+try {
+    $pdo = get_pdo();
+    $balance = get_user_token_balance($pdo, $userId);
+
+    out(200, ['ok' => true, 'balance' => $balance]);
+
+} catch (Throwable $e) {
+    $error_message = (defined('DEBUG') && DEBUG) ? $e->getMessage() : 'server error';
+    out(500, ['ok' => false, 'error' => $error_message]);
+}
