@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
 require_once __DIR__ . '/../lib/auth.php'; // require_auth()
 require_once __DIR__ . '/../db.php';       // get_pdo()
+require_once __DIR__ . '/../lib/tokens.php'; // For token management
 
 // -------------------- CONFIG --------------------
 const OPENROUTER_API_KEY = 'REPLACE_WITH_YOUR_OPENROUTER_KEY'; // put your key
@@ -240,6 +241,18 @@ if ($topic === '') out(422, ['ok'=>false, 'errors'=>['topic'=>'topic is required
 
 $complexity = in_array($complexityRaw, ['easy','medium','hard'], true) ? $complexityRaw : 'medium';
 $count = clamp_int($count, 5, 50);
+
+// -------------------- TOKEN CHECK --------------------
+try {
+  $pdo = get_pdo();
+  if (!deduct_tokens($pdo, $userId, TOKEN_COST_GENERATE_MOCK_TEST, 'generate_mock_test')) {
+    // HTTP 402 Payment Required is the standard code for this
+    out(402, ['ok'=>false, 'error'=>'insufficient_tokens', 'required'=>TOKEN_COST_GENERATE_MOCK_TEST]);
+  }
+} catch (Throwable $e) {
+  $msg = (defined('DEBUG') && DEBUG) ? $e->getMessage() : 'token deduction failed';
+  out(500, ['ok'=>false, 'error'=>'token_system_error', 'detail'=>$msg]);
+}
 
 // -------------------- RATE LIMIT --------------------
 try {

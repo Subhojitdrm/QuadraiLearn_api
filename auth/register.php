@@ -13,6 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require __DIR__ . '/../db.php'; // uses your existing db.php & config.php
+require_once __DIR__ . '/../lib/tokens.php'; // For token management
 
 function json_out(int $code, array $data): void {
     http_response_code($code);
@@ -128,6 +129,11 @@ try {
     ]);
 
     $userId = (int)$pdo->lastInsertId();
+
+    // Add initial tokens for the new user
+    if (defined('INITIAL_SIGNUP_TOKENS') && INITIAL_SIGNUP_TOKENS > 0) {
+        add_tokens($pdo, $userId, INITIAL_SIGNUP_TOKENS, 'initial_signup_bonus', 'user', $userId);
+    }
 
     json_out(201, [
         'ok' => true,

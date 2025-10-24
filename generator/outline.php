@@ -17,6 +17,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
  */
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../lib/auth.php';
+require_once __DIR__ . '/../db.php'; // For get_pdo()
+require_once __DIR__ . '/../lib/tokens.php'; // For token management
 
 // ---------- auth: only logged-in users ----------
 $claims = require_auth(); // 401s if missing/invalid
@@ -25,6 +27,18 @@ if ($userId <= 0) {
   http_response_code(401);
   echo json_encode(['ok'=>false,'error'=>'unauthorized']);
   exit;
+}
+
+// ---------- token check ----------
+try {
+  $pdo = get_pdo();
+  if (!deduct_tokens($pdo, $userId, TOKEN_COST_GENERATE_BOOK, 'generate_book_outline')) {
+    // HTTP 402 Payment Required
+    out(402, ['ok'=>false, 'error'=>'insufficient_tokens', 'required'=>TOKEN_COST_GENERATE_BOOK]);
+  }
+} catch (Throwable $e) {
+    $msg = (defined('DEBUG') && DEBUG) ? $e->getMessage() : 'token deduction failed';
+    out(500, ['ok'=>false, 'error'=>'token_system_error', 'detail'=>$msg]);
 }
 
 // ---------- config ----------
