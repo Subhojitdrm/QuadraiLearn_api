@@ -110,11 +110,11 @@ try {
     $subchapterStmt->execute([':cid' => $chapterId]);
     $subchapters = $subchapterStmt->fetchAll(PDO::FETCH_COLUMN);
 
-    // 4. Deduct tokens for generation
-    $tokenCost = defined('TOKEN_COST_GENERATE_CHAPTER') ? TOKEN_COST_GENERATE_CHAPTER : 5;
-    if (!deduct_tokens($pdo, $userId, $tokenCost, 'generate_chapter_content', $chapterId)) {
-        json_out(402, ['ok' => false, 'error' => 'insufficient_tokens', 'required' => $tokenCost]);
-    }
+    // 4. Deduct tokens for generation (Temporarily disabled)
+    // $tokenCost = defined('TOKEN_COST_GENERATE_CHAPTER') ? TOKEN_COST_GENERATE_CHAPTER : 5;
+    // if (!deduct_tokens($pdo, $userId, $tokenCost, 'generate_chapter_content', $chapterId)) {
+    //     json_out(402, ['ok' => false, 'error' => 'insufficient_tokens', 'required' => $tokenCost]);
+    // }
 
     // 5. Construct the AI prompt
     $subchapterList = '';
