@@ -115,8 +115,8 @@ try {
 
     // Prepare statements for chapters and subchapters
     $stmtChapter = $pdo->prepare(
-        'INSERT INTO chapters (book_id, chapter_index, title, generated_content, status, created_at, updated_at)
-         VALUES (:bid, :cidx, :title, :content, :status, NOW(), NOW())'
+        'INSERT INTO chapters (book_id, chapter_index, title, status, generated_content, created_at, updated_at)
+         VALUES (:bid, :cidx, :title, :status, :content, NOW(), NOW())'
     );
     $stmtSubchapter = $pdo->prepare(
         'INSERT INTO subchapters (chapter_id, subchapter_index, title, created_at)
@@ -132,8 +132,8 @@ try {
             ':bid' => $bookId,
             ':cidx' => (int)($chapterData['chapterIndex'] ?? 0),
             ':title' => trim((string)$chapterData['title']),
-            ':content' => ($chapterData['generatedContent'] ?? null) ? (string)$chapterData['generatedContent'] : null,
             ':status' => trim((string)($chapterData['status'] ?? 'idle')),
+            ':content' => ($chapterData['generatedContent'] ?? null) ? (string)$chapterData['generatedContent'] : null
         ]);
         $chapterId = (int)$pdo->lastInsertId();
 
