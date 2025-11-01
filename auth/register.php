@@ -24,7 +24,7 @@ require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../lib/tokens.php';
 
 /** Tokens to award on successful signup */
-const INITIAL_SIGNUP_TOKENS = 20;
+const INITIAL_SIGNUP_TOKENS = 250;
 
 /** Debug logger */
 function log_debug(string $message): void {
