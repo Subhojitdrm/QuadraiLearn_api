@@ -21,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 /** Load order: config BEFORE db */
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
-require_once __DIR__ . '/../lib/tokens.php';
+require_once __DIR__ . '/../lib/wallet.php';
 
 /** Tokens to award on successful signup */
 const INITIAL_SIGNUP_TOKENS = 250;
@@ -205,28 +205,26 @@ try {
     $userId = (int)$pdo->lastInsertId();
     log_debug("User inserted with ID {$userId}");
 
-    // Award initial tokens (using SAME $pdo, no commit inside add_tokens)
+    // Award initial tokens using new wallet system
     if (INITIAL_SIGNUP_TOKENS > 0) {
         try {
-            $ok = add_tokens(
+            // Credit wallet with registration bonus
+            wallet_credit(
                 $pdo,
                 $userId,
                 INITIAL_SIGNUP_TOKENS,
-                'initial_signup_bonus',
-                'user',
-                $userId,
-                'bonus'
+                TOKEN_TYPE_REGULAR,
+                REASON_REGISTRATION_BONUS,
+                null,
+                ['source' => 'registration'],
+                "WALLET_SEED:user:{$userId}"
             );
-            if (!$ok) {
-                if ($pdo->inTransaction()) $pdo->rollBack();
-                diag_json_out(500, 'add_tokens_returned_false');
-            }
+            log_debug('Initial tokens awarded via wallet system');
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             $code = ($e instanceof PDOException) ? $e->getCode() : 'non_pdo';
-            diag_json_out(500, 'add_tokens_threw', ['code' => $code, 'msg' => $e->getMessage()]);
+            diag_json_out(500, 'wallet_credit_failed', ['code' => $code, 'msg' => $e->getMessage()]);
         }
-        log_debug('Initial tokens awarded');
     }
 
     // Commit transaction
