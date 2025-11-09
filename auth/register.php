@@ -208,6 +208,8 @@ try {
     // Award initial tokens using new wallet system
     if (INITIAL_SIGNUP_TOKENS > 0) {
         try {
+            log_debug('About to credit wallet, transaction active: ' . ($pdo->inTransaction() ? 'yes' : 'no'));
+
             // Credit wallet with registration bonus
             wallet_credit(
                 $pdo,
@@ -219,8 +221,10 @@ try {
                 ['source' => 'registration'],
                 "WALLET_SEED:user:{$userId}"
             );
-            log_debug('Initial tokens awarded via wallet system');
+
+            log_debug('Initial tokens awarded, transaction active: ' . ($pdo->inTransaction() ? 'yes' : 'no'));
         } catch (Throwable $e) {
+            log_debug('wallet_credit threw exception: ' . $e->getMessage());
             if ($pdo->inTransaction()) $pdo->rollBack();
             $code = ($e instanceof PDOException) ? $e->getCode() : 'non_pdo';
             diag_json_out(500, 'wallet_credit_failed', ['code' => $code, 'msg' => $e->getMessage()]);
@@ -228,9 +232,18 @@ try {
     }
 
     // Commit transaction
+    log_debug('About to commit, transaction active: ' . ($pdo->inTransaction() ? 'yes' : 'no'));
+
     try {
-        $pdo->commit();
+        if (!$pdo->inTransaction()) {
+            log_debug('ERROR: No transaction active before commit!');
+            // Skip commit if no transaction
+        } else {
+            $pdo->commit();
+            log_debug('Transaction committed successfully');
+        }
     } catch (Throwable $e) {
+        log_debug('commit() threw exception: ' . $e->getMessage());
         diag_json_out(500, 'commit_failed', $e->getMessage());
     }
 
