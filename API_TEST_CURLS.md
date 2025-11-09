@@ -85,7 +85,7 @@ export TOKEN="eyJ0eXAiOiJKV1QiLCJhbGc..."
 curl -X GET "${BASE_URL}/v1/wallet/me" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "X-Request-Id: ${REQUEST_ID}" \
-  -H "X-Source: api-test"
+  -H "X-Source: web"
 ```
 
 **Expected Response:**
@@ -110,13 +110,13 @@ curl -X GET "${BASE_URL}/v1/wallet/me" \
 curl -X GET "${BASE_URL}/v1/wallet/me/transactions?limit=10" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "X-Request-Id: ${REQUEST_ID}" \
-  -H "X-Source: api-test"
+  -H "X-Source: web"
 
 # With pagination cursor
 curl -X GET "${BASE_URL}/v1/wallet/me/transactions?limit=10&cursor=abc123" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "X-Request-Id: ${REQUEST_ID}" \
-  -H "X-Source: api-test"
+  -H "X-Source: web"
 ```
 
 **Expected Response:**
@@ -147,7 +147,7 @@ curl -X GET "${BASE_URL}/v1/wallet/me/transactions?limit=10&cursor=abc123" \
 curl -X GET "${BASE_URL}/v1/wallet/pricebook" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "X-Request-Id: ${REQUEST_ID}" \
-  -H "X-Source: api-test"
+  -H "X-Source: web"
 ```
 
 **Expected Response:**
@@ -181,7 +181,7 @@ curl -X POST "${BASE_URL}/v1/tokens/authorizations" \
   -H "Content-Type: application/json" \
   -H "X-Request-Id: $(uuidgen)" \
   -H "X-Idempotency-Key: $(uuidgen)" \
-  -H "X-Source: api-test" \
+  -H "X-Source: web" \
   -d '{
     "feature": "chapter_generation",
     "units": 1,
@@ -222,7 +222,7 @@ curl -X POST "${BASE_URL}/v1/tokens/authorizations/capture?authorization_id=${AU
   -H "Content-Type: application/json" \
   -H "X-Request-Id: $(uuidgen)" \
   -H "X-Idempotency-Key: $(uuidgen)" \
-  -H "X-Source: api-test" \
+  -H "X-Source: web" \
   -d '{
     "result_id": "chapter_123",
     "status_from_upstream": "success"
@@ -250,7 +250,7 @@ curl -X POST "${BASE_URL}/v1/tokens/authorizations/void?authorization_id=${AUTH_
   -H "Content-Type: application/json" \
   -H "X-Request-Id: $(uuidgen)" \
   -H "X-Idempotency-Key: $(uuidgen)" \
-  -H "X-Source: api-test" \
+  -H "X-Source: web" \
   -d '{
     "reason": "generation_failed"
   }'
@@ -281,7 +281,7 @@ curl -X POST "${BASE_URL}/v1/wallet/me/purchases" \
   -H "Content-Type: application/json" \
   -H "X-Request-Id: $(uuidgen)" \
   -H "X-Idempotency-Key: $(uuidgen)" \
-  -H "X-Source: api-test" \
+  -H "X-Source: web" \
   -d '{
     "tokens": 250,
     "provider": "razorpay"
@@ -315,7 +315,7 @@ export PURCHASE_ID="01JBWXYZPURCHASE"
 curl -X GET "${BASE_URL}/v1/wallet/me/purchases/${PURCHASE_ID}" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "X-Request-Id: ${REQUEST_ID}" \
-  -H "X-Source: api-test"
+  -H "X-Source: web"
 ```
 
 **Expected Response:**
@@ -341,7 +341,7 @@ curl -X GET "${BASE_URL}/v1/wallet/me/purchases/${PURCHASE_ID}" \
 curl -X GET "${BASE_URL}/v1/wallet/me/receipts?limit=10" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "X-Request-Id: ${REQUEST_ID}" \
-  -H "X-Source: api-test"
+  -H "X-Source: web"
 ```
 
 **Expected Response:**
@@ -368,7 +368,7 @@ export RECEIPT_NO="RCPT-2025-001"
 curl -X GET "${BASE_URL}/v1/wallet/me/receipts/${RECEIPT_NO}" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "X-Request-Id: ${REQUEST_ID}" \
-  -H "X-Source: api-test"
+  -H "X-Source: web"
 ```
 
 **Expected Response:**
@@ -400,7 +400,7 @@ curl -X POST "${BASE_URL}/v1/wallet/me/referrals/link" \
   -H "Content-Type: application/json" \
   -H "X-Request-Id: $(uuidgen)" \
   -H "X-Idempotency-Key: $(uuidgen)" \
-  -H "X-Source: api-test" \
+  -H "X-Source: web" \
   -d '{
     "campaign_id": "01JBCAMPAIGN123"
   }'
@@ -430,7 +430,7 @@ curl -X POST "${BASE_URL}/v1/tokens/deduct" \
   -H "Content-Type: application/json" \
   -H "X-Request-Id: $(uuidgen)" \
   -H "X-Idempotency-Key: $(uuidgen)" \
-  -H "X-Source: api-test" \
+  -H "X-Source: web" \
   -d '{
     "amount": 10,
     "reason": "chapter_generation",
@@ -463,7 +463,7 @@ curl -X POST "${BASE_URL}/v1/tokens/deduct" \
 curl -X GET "${BASE_URL}/v1/admin/analytics/tokens/overview?from=2025-11-01&to=2025-11-09" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Request-Id: ${REQUEST_ID}" \
-  -H "X-Source: api-test"
+  -H "X-Source: web"
 ```
 
 ### Get Token Composition
@@ -471,7 +471,7 @@ curl -X GET "${BASE_URL}/v1/admin/analytics/tokens/overview?from=2025-11-01&to=2
 curl -X GET "${BASE_URL}/v1/admin/analytics/tokens/composition" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Request-Id: ${REQUEST_ID}" \
-  -H "X-Source: api-test"
+  -H "X-Source: web"
 ```
 
 ### Get Token Trend
@@ -479,7 +479,7 @@ curl -X GET "${BASE_URL}/v1/admin/analytics/tokens/composition" \
 curl -X GET "${BASE_URL}/v1/admin/analytics/tokens/trend?period=7d" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Request-Id: ${REQUEST_ID}" \
-  -H "X-Source: api-test"
+  -H "X-Source: web"
 ```
 
 ### Get Tokens by Feature
@@ -487,7 +487,7 @@ curl -X GET "${BASE_URL}/v1/admin/analytics/tokens/trend?period=7d" \
 curl -X GET "${BASE_URL}/v1/admin/analytics/tokens/by-feature?from=2025-11-01&to=2025-11-09" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "X-Request-Id: ${REQUEST_ID}" \
-  -H "X-Source: api-test"
+  -H "X-Source: web"
 ```
 
 ---
@@ -519,7 +519,7 @@ AUTH_RESPONSE=$(curl -s -X POST "${BASE_URL}/v1/tokens/authorizations" \
   -H "Content-Type: application/json" \
   -H "X-Request-Id: $(uuidgen)" \
   -H "X-Idempotency-Key: $(uuidgen)" \
-  -H "X-Source: api-test" \
+  -H "X-Source: web" \
   -d '{
     "feature": "chapter_generation",
     "units": 1,
@@ -538,7 +538,7 @@ curl -s -X POST "${BASE_URL}/v1/tokens/authorizations/capture?authorization_id=$
   -H "Content-Type: application/json" \
   -H "X-Request-Id: $(uuidgen)" \
   -H "X-Idempotency-Key: $(uuidgen)" \
-  -H "X-Source: api-test" \
+  -H "X-Source: web" \
   -d '{
     "result_id": "chapter_final_001",
     "status_from_upstream": "success"

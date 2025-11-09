@@ -142,7 +142,7 @@ test_wallet_balance() {
     RESPONSE=$(curl -s -X GET "${BASE_URL}/v1/wallet/me" \
         -H "Authorization: Bearer ${TOKEN}" \
         -H "X-Request-Id: $(generate_uuid)" \
-        -H "X-Source: test-script")
+        -H "X-Source: web")
 
     TOTAL=$(echo "$RESPONSE" | jq -r '.balances.total // 0')
 
@@ -174,7 +174,7 @@ test_transactions() {
     RESPONSE=$(curl -s -X GET "${BASE_URL}/v1/wallet/me/transactions?limit=5" \
         -H "Authorization: Bearer ${TOKEN}" \
         -H "X-Request-Id: $(generate_uuid)" \
-        -H "X-Source: test-script")
+        -H "X-Source: web")
 
     ITEMS_COUNT=$(echo "$RESPONSE" | jq '.items | length')
 
@@ -209,7 +209,7 @@ test_authorization_create() {
         -H "Content-Type: application/json" \
         -H "X-Request-Id: $(generate_uuid)" \
         -H "X-Idempotency-Key: $(generate_uuid)" \
-        -H "X-Source: test-script" \
+        -H "X-Source: web" \
         -d '{
             "feature": "chapter_generation",
             "units": 1,
@@ -258,7 +258,7 @@ test_authorization_capture() {
         -H "Content-Type: application/json" \
         -H "X-Request-Id: $(generate_uuid)" \
         -H "X-Idempotency-Key: $(generate_uuid)" \
-        -H "X-Source: test-script" \
+        -H "X-Source: web" \
         -d '{
             "result_id": "test_chapter_result_001",
             "status_from_upstream": "success"
@@ -294,7 +294,7 @@ test_pricebook() {
     RESPONSE=$(curl -s -X GET "${BASE_URL}/v1/wallet/pricebook" \
         -H "Authorization: Bearer ${TOKEN}" \
         -H "X-Request-Id: $(generate_uuid)" \
-        -H "X-Source: test-script")
+        -H "X-Source: web")
 
     TIERS_COUNT=$(echo "$RESPONSE" | jq '.tiers | length // 0')
 
@@ -328,7 +328,7 @@ test_purchase_create() {
         -H "Content-Type: application/json" \
         -H "X-Request-Id: $(generate_uuid)" \
         -H "X-Idempotency-Key: $(generate_uuid)" \
-        -H "X-Source: test-script" \
+        -H "X-Source: web" \
         -d '{
             "tokens": 100,
             "provider": "razorpay"

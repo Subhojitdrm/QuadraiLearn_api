@@ -1,0 +1,715 @@
+{
+  "info": {
+    "name": "Wallet & Token API",
+    "description": "Complete API collection for Wallet and Token System with authorization, purchases, and analytics",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://quadrailearn.quadravise.com/api",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "authorization_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "purchase_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Register User",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.user && response.user.id) {",
+                  "        pm.collectionVariables.set('user_id', response.user.id);",
+                  "        console.log('User ID saved:', response.user.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Test\",\n  \"lastName\": \"User\",\n  \"username\": \"testuser{{$randomInt}}\",\n  \"email\": \"testuser{{$randomInt}}@example.com\",\n  \"password\": \"TestPass123!\",\n  \"confirmPassword\": \"TestPass123!\",\n  \"interestedAreas\": [\"AI\", \"Mathematics\"],\n  \"primaryStudyNeed\": \"Exam Preparation\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/register",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "register"]
+            },
+            "description": "Register a new user and receive 250 initial tokens"
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.token) {",
+                  "        pm.collectionVariables.set('access_token', response.token);",
+                  "        console.log('Token saved successfully');",
+                  "    }",
+                  "    if (response.user && response.user.id) {",
+                  "        pm.collectionVariables.set('user_id', response.user.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"testuser@example.com\",\n  \"password\": \"TestPass123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Login and get JWT token"
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "logout"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Wallet",
+      "item": [
+        {
+          "name": "Get Wallet Balance",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "X-Source",
+                "value": "web"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/wallet/me",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "wallet", "me"]
+            },
+            "description": "Get current user's wallet balance (regular + promo tokens)"
+          }
+        },
+        {
+          "name": "Get Transaction History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/wallet/me/transactions?limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "wallet", "me", "transactions"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get wallet transaction history with pagination"
+          }
+        },
+        {
+          "name": "Get Pricebook",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/wallet/pricebook",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "wallet", "pricebook"]
+            },
+            "description": "Get token pricing tiers"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Token Authorizations",
+      "item": [
+        {
+          "name": "Create Authorization (HOLD)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.authorization_id) {",
+                  "        pm.collectionVariables.set('authorization_id', response.authorization_id);",
+                  "        console.log('Authorization ID saved:', response.authorization_id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "X-Source",
+                "value": "web"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"feature\": \"chapter_generation\",\n  \"units\": 1,\n  \"cost_per_unit\": 10,\n  \"resource_key\": \"chapter_{{$randomInt}}\",\n  \"metadata\": {\n    \"subject\": \"Mathematics\",\n    \"grade\": \"VIII\",\n    \"chapter_title\": \"Algebra Basics\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/tokens/authorizations",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "tokens", "authorizations"]
+            },
+            "description": "Create a token authorization (hold tokens for future deduction)"
+          }
+        },
+        {
+          "name": "Capture Authorization (DEBIT)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"result_id\": \"chapter_result_{{$randomInt}}\",\n  \"status_from_upstream\": \"success\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/tokens/authorizations/capture?authorization_id={{authorization_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "tokens", "authorizations", "capture"],
+              "query": [
+                {
+                  "key": "authorization_id",
+                  "value": "{{authorization_id}}"
+                }
+              ]
+            },
+            "description": "Capture an authorization (actually debit the tokens)"
+          }
+        },
+        {
+          "name": "Void Authorization (RELEASE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"generation_failed\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/tokens/authorizations/void?authorization_id={{authorization_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "tokens", "authorizations", "void"],
+              "query": [
+                {
+                  "key": "authorization_id",
+                  "value": "{{authorization_id}}"
+                }
+              ]
+            },
+            "description": "Void an authorization (release held tokens without debiting)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Token Deduction (Simple)",
+      "item": [
+        {
+          "name": "Deduct Tokens",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 10,\n  \"reason\": \"chapter_generation\",\n  \"reference_id\": \"chapter_{{$randomInt}}\",\n  \"metadata\": {\n    \"chapter_title\": \"Linear Equations\",\n    \"subject\": \"Mathematics\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/tokens/deduct",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "tokens", "deduct"]
+            },
+            "description": "Direct token deduction (without authorization flow)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Purchases",
+      "item": [
+        {
+          "name": "Create Purchase",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.purchase_id) {",
+                  "        pm.collectionVariables.set('purchase_id', response.purchase_id);",
+                  "        console.log('Purchase ID saved:', response.purchase_id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tokens\": 100,\n  \"provider\": \"razorpay\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/wallet/me/purchases",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "wallet", "me", "purchases"]
+            },
+            "description": "Create a token purchase intent"
+          }
+        },
+        {
+          "name": "Get Purchase Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/wallet/me/purchases/{{purchase_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "wallet", "me", "purchases", "{{purchase_id}}"]
+            },
+            "description": "Check purchase status"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Receipts",
+      "item": [
+        {
+          "name": "List Receipts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/wallet/me/receipts?limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "wallet", "me", "receipts"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "List all receipts for completed purchases"
+          }
+        },
+        {
+          "name": "View Receipt",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/wallet/me/receipts/RCPT-2025-001",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "wallet", "me", "receipts", "RCPT-2025-001"]
+            },
+            "description": "View detailed receipt by receipt number"
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Referrals",
+      "item": [
+        {
+          "name": "Generate Referral Link",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campaign_id\": \"01JBCAMPAIGN123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/wallet/me/referrals/link",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "wallet", "me", "referrals", "link"]
+            },
+            "description": "Generate referral link for a campaign"
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Admin - Analytics",
+      "item": [
+        {
+          "name": "Token Overview",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/analytics/tokens/overview?from=2025-11-01&to=2025-11-30",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "admin", "analytics", "tokens", "overview"],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "2025-11-01"
+                },
+                {
+                  "key": "to",
+                  "value": "2025-11-30"
+                }
+              ]
+            },
+            "description": "Get token usage overview for date range"
+          }
+        },
+        {
+          "name": "Token Composition",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/analytics/tokens/composition",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "admin", "analytics", "tokens", "composition"]
+            },
+            "description": "Get regular vs promo token composition"
+          }
+        },
+        {
+          "name": "Token Trend",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/analytics/tokens/trend?period=7d",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "admin", "analytics", "tokens", "trend"],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "7d"
+                }
+              ]
+            },
+            "description": "Get token usage trend (7d, 30d, 90d)"
+          }
+        },
+        {
+          "name": "Tokens by Feature",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/analytics/tokens/by-feature?from=2025-11-01&to=2025-11-30",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "admin", "analytics", "tokens", "by-feature"],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "2025-11-01"
+                },
+                {
+                  "key": "to",
+                  "value": "2025-11-30"
+                }
+              ]
+            },
+            "description": "Get token usage breakdown by feature"
+          }
+        },
+        {
+          "name": "Create Analytics Export",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dataset\": \"transactions\",\n  \"type\": \"csv\",\n  \"filters\": {\n    \"from\": \"2025-11-01\",\n    \"to\": \"2025-11-30\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/admin/analytics/exports/create",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "admin", "analytics", "exports", "create"]
+            },
+            "description": "Create analytics data export"
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Admin - User Management",
+      "item": [
+        {
+          "name": "Get User Wallet",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/users/{{user_id}}/wallet",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "admin", "users", "{{user_id}}", "wallet"]
+            },
+            "description": "Get wallet balance for specific user (admin only)"
+          }
+        },
+        {
+          "name": "Seed User Tokens",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Request-Id",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "X-Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": {{user_id}},\n  \"amount\": 100,\n  \"reason\": \"admin_adjustment\",\n  \"note\": \"Manual credit for testing\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/admin/users/seed",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "admin", "users", "seed"]
+            },
+            "description": "Manually credit tokens to user (admin only)"
+          }
+        }
+      ]
+    }
+  ]
+}
