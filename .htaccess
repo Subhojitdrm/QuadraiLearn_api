@@ -1,11 +1,17 @@
 # Prevent directory listing
-Options -Indexes  -MultiViews
+Options -Indexes -MultiViews
 
 # Make sure PHP handles errors gracefully
 php_flag display_errors Off
 
 # Enable URL rewriting
 RewriteEngine On
+
+# Set the base directory for rewrites
+# IMPORTANT: Update this if your API is in a subdirectory
+# If API is at root: RewriteBase /
+# If API is at /api_folder/: RewriteBase /api_folder/
+RewriteBase /
 
 # ============================================================================
 # API v1 Routes - Wallet endpoints
