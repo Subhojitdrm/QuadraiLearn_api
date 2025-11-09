@@ -12,6 +12,7 @@ RewriteEngine On
 # ============================================================================
 
 # User wallet endpoints
+RewriteRule ^api/v1/wallet/test-routing$ v1/wallet/test-routing.php [L,QSA]
 RewriteRule ^api/v1/wallet/me/pricebook$ v1/wallet/pricebook.php [L,QSA]
 RewriteRule ^api/v1/wallet/me/transactions$ v1/wallet/transactions.php [L,QSA]
 RewriteRule ^api/v1/wallet/me$ v1/wallet/me.php [L,QSA]
