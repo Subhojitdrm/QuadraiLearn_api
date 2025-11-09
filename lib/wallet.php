@@ -167,6 +167,17 @@ function wallet_add_ledger_entry(
         $idempotencyKey
     ]);
 
+    // Manually update balance cache (in case trigger doesn't exist)
+    $cacheStmt = $pdo->prepare('
+        INSERT INTO wallet_balance_cache (user_id, regular_balance, promo_balance, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+            regular_balance = VALUES(regular_balance),
+            promo_balance = VALUES(promo_balance),
+            updated_at = VALUES(updated_at)
+    ');
+    $cacheStmt->execute([$userId, $regularBalance, $promoBalance, $occurredAt]);
+
     // Prepare entry data for return
     $entry = [
         'id' => $id,

@@ -1,0 +1,329 @@
+-- ============================================================================
+-- Add Wallet & Token System Tables ONLY
+-- ============================================================================
+-- Description: Adds new wallet tables to existing database
+-- Date: 2025-11-09
+-- IMPORTANT: Run this AFTER your existing database is set up
+-- ============================================================================
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============================================================================
+-- TABLE: wallet_ledger
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `wallet_ledger` (
+  `id` varchar(26) NOT NULL COMMENT 'ULID primary key',
+  `user_id` int(11) NOT NULL,
+  `token_type` enum('regular','promo') NOT NULL,
+  `direction` enum('credit','debit') NOT NULL,
+  `reason` enum('registration_bonus','chapter_generation','refund_generation_failure','token_purchase','referral_bonus','promo_expiry','admin_adjustment','migration_correction') NOT NULL,
+  `amount` int(11) UNSIGNED NOT NULL,
+  `balance_after_regular` int(11) NOT NULL DEFAULT '0',
+  `balance_after_promo` int(11) NOT NULL DEFAULT '0',
+  `occurred_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `reference_id` varchar(64) DEFAULT NULL COMMENT 'e.g., chapter_id, purchase_id',
+  `metadata` json DEFAULT NULL,
+  `idempotency_key` varchar(128) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idempotency_key` (`idempotency_key`),
+  KEY `idx_user_occurred` (`user_id`,`occurred_at`),
+  KEY `idx_reason` (`reason`),
+  KEY `idx_reference` (`reference_id`),
+  CONSTRAINT `fk_wallet_ledger_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Append-only ledger for all wallet transactions';
+
+-- ============================================================================
+-- TABLE: wallet_balance_cache
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `wallet_balance_cache` (
+  `user_id` int(11) NOT NULL,
+  `regular_balance` int(11) NOT NULL DEFAULT '0',
+  `promo_balance` int(11) NOT NULL DEFAULT '0',
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`user_id`),
+  CONSTRAINT `fk_wallet_balance_cache_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cached wallet balances for fast reads';
+
+-- ============================================================================
+-- TABLE: idempotency_keys
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `idempotency_keys` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) DEFAULT NULL COMMENT 'Null for webhooks',
+  `operation` varchar(64) NOT NULL COMMENT 'e.g., WALLET_SEED, TOKENS_AUTHORIZE',
+  `resource_key` varchar(128) NOT NULL COMMENT 'e.g., purchase_id, sha256(chapter_params)',
+  `idempotency_key` varchar(128) NOT NULL,
+  `response_hash` char(64) NOT NULL COMMENT 'SHA256 of response body',
+  `status_code` smallint(6) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_unique_operation` (`user_id`,`operation`,`resource_key`),
+  UNIQUE KEY `idx_unique_idempotency_key` (`idempotency_key`),
+  KEY `idx_created` (`created_at`),
+  CONSTRAINT `fk_idempotency_keys_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Idempotency key storage for preventing duplicate operations';
+
+-- ============================================================================
+-- TABLE: token_authorizations
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `token_authorizations` (
+  `id` varchar(26) NOT NULL COMMENT 'ULID primary key',
+  `user_id` int(11) NOT NULL,
+  `feature` varchar(64) NOT NULL COMMENT 'e.g., chapter_generation',
+  `resource_key` varchar(128) NOT NULL COMMENT 'Stable hash of resource params',
+  `amount` int(11) UNSIGNED NOT NULL COMMENT 'Total tokens reserved',
+  `status` enum('created','held','captured','voided','expired') NOT NULL DEFAULT 'created',
+  `hold_expires_at` timestamp NULL DEFAULT NULL COMMENT 'When hold expires (10 minutes from creation)',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `metadata` json DEFAULT NULL,
+  `idempotency_key` varchar(128) DEFAULT NULL,
+  `captured_transaction_id` varchar(26) DEFAULT NULL COMMENT 'Ledger entry ID when captured',
+  `voided_transaction_id` varchar(26) DEFAULT NULL COMMENT 'Ledger entry ID when voided (refund)',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idempotency_key` (`idempotency_key`),
+  KEY `idx_user_feature` (`user_id`,`feature`),
+  KEY `idx_status` (`status`),
+  KEY `idx_expires` (`hold_expires_at`),
+  KEY `idx_user_feature_resource` (`user_id`,`feature`,`resource_key`,`status`),
+  CONSTRAINT `fk_token_authorizations_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Token authorizations for hold-then-capture pattern';
+
+-- ============================================================================
+-- TABLE: purchases
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `purchases` (
+  `id` varchar(26) NOT NULL COMMENT 'ULID primary key',
+  `user_id` int(11) NOT NULL,
+  `status` enum('created','pending','paid','failed','expired','refunded') NOT NULL DEFAULT 'created',
+  `tokens` int(11) UNSIGNED NOT NULL COMMENT 'Number of tokens to credit',
+  `inr_amount` int(11) UNSIGNED NOT NULL COMMENT 'Amount in paise (₹1 = 100 paise)',
+  `provider` varchar(32) NOT NULL COMMENT 'Payment provider (razorpay, stripe, etc.)',
+  `provider_order_id` varchar(128) DEFAULT NULL COMMENT 'Provider order ID',
+  `provider_payment_id` varchar(128) DEFAULT NULL COMMENT 'Provider payment ID (set on success)',
+  `receipt_no` varchar(64) DEFAULT NULL COMMENT 'Receipt number (generated on payment success)',
+  `metadata` json DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `idempotency_key` varchar(128) DEFAULT NULL,
+  `ledger_transaction_id` varchar(26) DEFAULT NULL COMMENT 'Wallet ledger entry ID when credited',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `provider_order_id` (`provider_order_id`),
+  UNIQUE KEY `receipt_no` (`receipt_no`),
+  UNIQUE KEY `idempotency_key` (`idempotency_key`),
+  KEY `idx_user_status` (`user_id`,`status`),
+  KEY `idx_provider_order` (`provider`,`provider_order_id`),
+  KEY `idx_created` (`created_at`),
+  CONSTRAINT `fk_purchases_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Token purchase records';
+
+-- ============================================================================
+-- TABLE: payment_webhook_events
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `payment_webhook_events` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `provider` varchar(32) NOT NULL COMMENT 'Payment provider name',
+  `event_id` varchar(128) NOT NULL COMMENT 'Unique event ID from provider',
+  `payload` json NOT NULL COMMENT 'Full webhook payload',
+  `processed_at` timestamp NULL DEFAULT NULL COMMENT 'When event was processed',
+  `status` enum('received','processed','skipped','error') NOT NULL DEFAULT 'received',
+  `error_msg` text,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `event_id` (`event_id`),
+  KEY `idx_provider_event` (`provider`,`event_id`),
+  KEY `idx_status` (`status`,`created_at`),
+  KEY `idx_processed` (`processed_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Payment webhook event log';
+
+-- ============================================================================
+-- TABLE: promotion_campaigns
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `promotion_campaigns` (
+  `id` varchar(26) NOT NULL COMMENT 'ULID primary key',
+  `name` varchar(120) NOT NULL,
+  `type` enum('referral','seasonal','bulk') NOT NULL,
+  `bonus_amount` int(11) UNSIGNED NOT NULL COMMENT 'Token amount to award',
+  `token_type` enum('regular','promo') NOT NULL DEFAULT 'promo',
+  `start_at` timestamp NULL DEFAULT NULL COMMENT 'Campaign start date (null = immediate)',
+  `end_at` timestamp NULL DEFAULT NULL COMMENT 'Campaign end date (null = no end)',
+  `per_user_cap` int(11) UNSIGNED DEFAULT NULL COMMENT 'Max times a user can benefit (null = unlimited)',
+  `terms` text COMMENT 'Campaign terms and conditions',
+  `status` enum('draft','active','paused','archived') NOT NULL DEFAULT 'draft',
+  `created_by` int(11) DEFAULT NULL COMMENT 'Admin user who created',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `metadata` json DEFAULT NULL COMMENT 'Additional campaign settings',
+  PRIMARY KEY (`id`),
+  KEY `idx_type_status` (`type`,`status`),
+  KEY `idx_dates` (`start_at`,`end_at`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Promotional campaign configurations';
+
+-- ============================================================================
+-- TABLE: referrals
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `referrals` (
+  `id` varchar(26) NOT NULL COMMENT 'ULID primary key',
+  `campaign_id` varchar(26) NOT NULL,
+  `referrer_user_id` int(11) NOT NULL COMMENT 'User who referred',
+  `referral_code` varchar(12) NOT NULL COMMENT 'Unique referral code',
+  `referee_user_id` int(11) DEFAULT NULL COMMENT 'User who signed up (null until signup)',
+  `status` enum('generated','clicked','joined','credited','rejected') NOT NULL DEFAULT 'generated',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `ledger_transaction_id` varchar(26) DEFAULT NULL COMMENT 'Ledger entry when credited',
+  `click_count` int(11) NOT NULL DEFAULT '0' COMMENT 'Number of clicks on referral link',
+  `last_clicked_at` timestamp NULL DEFAULT NULL COMMENT 'Last click timestamp',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_unique_referrer_code` (`referrer_user_id`,`referral_code`),
+  UNIQUE KEY `idx_unique_campaign_referee` (`campaign_id`,`referee_user_id`),
+  KEY `idx_code` (`referral_code`),
+  KEY `idx_referrer` (`referrer_user_id`,`status`),
+  KEY `idx_status` (`status`),
+  KEY `fk_referrals_campaign` (`campaign_id`),
+  KEY `fk_referrals_referee` (`referee_user_id`),
+  CONSTRAINT `fk_referrals_campaign` FOREIGN KEY (`campaign_id`) REFERENCES `promotion_campaigns` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_referrals_referee` FOREIGN KEY (`referee_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_referrals_referrer` FOREIGN KEY (`referrer_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Referral tracking';
+
+-- ============================================================================
+-- TABLE: promo_expiry_schedules
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `promo_expiry_schedules` (
+  `id` varchar(26) NOT NULL COMMENT 'ULID primary key',
+  `user_id` int(11) NOT NULL,
+  `source_ledger_id` varchar(26) NOT NULL COMMENT 'FK to wallet_ledger (promo credit)',
+  `expiry_at` timestamp NOT NULL COMMENT 'When promo tokens expire',
+  `amount_initial` int(11) UNSIGNED NOT NULL COMMENT 'Initial promo amount',
+  `amount_remaining` int(11) UNSIGNED NOT NULL COMMENT 'Remaining amount to expire',
+  `status` enum('scheduled','partially_expired','expired') NOT NULL DEFAULT 'scheduled',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_user_expiry` (`user_id`,`expiry_at`),
+  KEY `idx_expiry_status` (`expiry_at`,`status`),
+  KEY `idx_status` (`status`),
+  KEY `fk_promo_expiry_ledger` (`source_ledger_id`),
+  CONSTRAINT `fk_promo_expiry_ledger` FOREIGN KEY (`source_ledger_id`) REFERENCES `wallet_ledger` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_promo_expiry_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Promo token expiry schedules';
+
+-- ============================================================================
+-- TABLE: analytics_token_daily
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `analytics_token_daily` (
+  `date` date NOT NULL,
+  `credited` bigint(20) NOT NULL DEFAULT '0' COMMENT 'Total tokens credited',
+  `debited` bigint(20) NOT NULL DEFAULT '0' COMMENT 'Total tokens debited',
+  `net` bigint(20) NOT NULL DEFAULT '0' COMMENT 'Net tokens (credited - debited)',
+  `revenue_in_inr` decimal(15,2) NOT NULL DEFAULT '0.00' COMMENT 'Revenue from purchases in INR',
+  `active_users` int(11) NOT NULL DEFAULT '0' COMMENT 'Unique active users',
+  `by_feature` json DEFAULT NULL COMMENT 'Breakdown by feature',
+  `regular_vs_promo` json DEFAULT NULL COMMENT 'Regular vs promo split',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`date`),
+  KEY `idx_date_range` (`date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Daily aggregated token analytics';
+
+-- ============================================================================
+-- TABLE: analytics_exports
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `analytics_exports` (
+  `id` varchar(26) NOT NULL COMMENT 'ULID primary key',
+  `user_id` int(11) NOT NULL COMMENT 'Admin who requested export',
+  `type` enum('csv','json') NOT NULL DEFAULT 'csv',
+  `dataset` varchar(64) NOT NULL COMMENT 'Dataset to export (transactions, purchases, etc.)',
+  `filters` json DEFAULT NULL COMMENT 'Export filters',
+  `status` enum('preparing','ready','failed','expired') NOT NULL DEFAULT 'preparing',
+  `estimated_rows` int(11) DEFAULT NULL COMMENT 'Estimated number of rows',
+  `actual_rows` int(11) DEFAULT NULL COMMENT 'Actual rows exported',
+  `file_path` varchar(255) DEFAULT NULL COMMENT 'Path to export file',
+  `download_url` varchar(512) DEFAULT NULL COMMENT 'Signed download URL',
+  `expires_at` timestamp NULL DEFAULT NULL COMMENT 'When download link expires',
+  `error_message` text COMMENT 'Error message if failed',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `completed_at` timestamp NULL DEFAULT NULL COMMENT 'When export completed',
+  PRIMARY KEY (`id`),
+  KEY `idx_user_status` (`user_id`,`status`),
+  KEY `idx_created` (`created_at`),
+  KEY `idx_expires` (`expires_at`),
+  CONSTRAINT `fk_analytics_exports_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Data export request tracking';
+
+-- ============================================================================
+-- TRIGGER: Wallet Balance Cache Auto-Update
+-- ============================================================================
+
+DROP TRIGGER IF EXISTS `trg_wallet_ledger_after_insert`;
+
+DELIMITER $$
+
+CREATE TRIGGER `trg_wallet_ledger_after_insert`
+AFTER INSERT ON `wallet_ledger`
+FOR EACH ROW
+BEGIN
+  INSERT INTO `wallet_balance_cache` (
+    `user_id`,
+    `regular_balance`,
+    `promo_balance`,
+    `updated_at`
+  )
+  VALUES (
+    NEW.user_id,
+    NEW.balance_after_regular,
+    NEW.balance_after_promo,
+    NEW.occurred_at
+  )
+  ON DUPLICATE KEY UPDATE
+    `regular_balance` = NEW.balance_after_regular,
+    `promo_balance` = NEW.balance_after_promo,
+    `updated_at` = NEW.occurred_at;
+END$$
+
+DELIMITER ;
+
+-- ============================================================================
+-- VIEW: Real-time Token Analytics
+-- ============================================================================
+
+DROP VIEW IF EXISTS `v_token_analytics_realtime`;
+
+CREATE VIEW `v_token_analytics_realtime` AS
+SELECT
+    DATE(occurred_at) as date,
+    SUM(CASE WHEN direction = 'credit' THEN amount ELSE 0 END) as credited,
+    SUM(CASE WHEN direction = 'debit' THEN amount ELSE 0 END) as debited,
+    SUM(CASE WHEN direction = 'credit' THEN amount ELSE -amount END) as net,
+    COUNT(DISTINCT user_id) as active_users
+FROM wallet_ledger
+GROUP BY DATE(occurred_at);
+
+-- ============================================================================
+-- Re-enable foreign key checks
+-- ============================================================================
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- Verification Query (Run this after import to verify)
+-- ============================================================================
+-- SELECT
+--   TABLE_NAME,
+--   TABLE_ROWS,
+--   CREATE_TIME
+-- FROM information_schema.TABLES
+-- WHERE TABLE_SCHEMA = 'calmconq_quadravise_library'
+--   AND TABLE_NAME IN (
+--     'wallet_ledger', 'wallet_balance_cache', 'idempotency_keys',
+--     'token_authorizations', 'purchases', 'payment_webhook_events',
+--     'promotion_campaigns', 'referrals', 'promo_expiry_schedules',
+--     'analytics_token_daily', 'analytics_exports'
+--   )
+-- ORDER BY TABLE_NAME;
+
+-- ============================================================================
+-- END OF WALLET TABLES CREATION
+-- ============================================================================
