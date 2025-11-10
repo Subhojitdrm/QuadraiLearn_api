@@ -124,11 +124,28 @@ try {
         json_out(404, ['ok' => false, 'error' => 'user_not_found']);
     }
 
-    // Current balance (helper from lib/tokens.php)
-    $balance = get_token_balance($pdo, $queryUserId);
-    if ($balance === null) {
-        // If no row yet, treat as 0 balance
-        $balance = 0;
+    // Current balance: prefer wallet_balance_cache; fall back to legacy token_balances
+    $regularBalance = 0;
+    $promoBalance   = 0;
+    $cacheRow       = null;
+    try {
+        $bal = $pdo->prepare('SELECT regular_balance, promo_balance FROM wallet_balance_cache WHERE user_id = :u LIMIT 1');
+        $bal->execute([':u' => $queryUserId]);
+        $cacheRow = $bal->fetch(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        if ($e->getCode() !== '42S02') {
+            throw $e;
+        }
+        // table missing -> fall back to legacy path below
+    }
+
+    if ($cacheRow) {
+        $regularBalance = (int)$cacheRow['regular_balance'];
+        $promoBalance   = (int)$cacheRow['promo_balance'];
+    } else {
+        $legacyBalance  = get_token_balance($pdo, $queryUserId);
+        $regularBalance = (int)($legacyBalance ?? 0);
+        $promoBalance   = 0;
     }
 
     $resp = [
@@ -140,7 +157,7 @@ try {
             'firstName' => $userRow['first_name'],
             'lastName'  => $userRow['last_name'],
         ],
-        'balance' => (int)$balance,
+        'balance' => $regularBalance + $promoBalance,
     ];
 
     if ($includeLedger) {
