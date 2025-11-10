@@ -148,8 +148,8 @@ try {
         $pageSize = max(1, min(100, (int)($_GET['pageSize'] ?? 25)));
         $offset   = ($page - 1) * $pageSize;
 
-        // Count total
-        $cnt = $pdo->prepare('SELECT COUNT(*) FROM token_ledger WHERE user_id = :u');
+        // Count total (wallet_ledger stores the authoritative transaction log)
+        $cnt = $pdo->prepare('SELECT COUNT(*) FROM wallet_ledger WHERE user_id = :u');
         $cnt->execute([':u' => $queryUserId]);
         $totalRows = (int)$cnt->fetchColumn();
 
