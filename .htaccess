@@ -18,78 +18,78 @@ RewriteBase /
 # ============================================================================
 
 # User wallet endpoints
-RewriteRule ^api/v1/wallet/test-routing$ v1/wallet/test-routing.php [L,QSA]
-RewriteRule ^api/v1/wallet/me/pricebook$ v1/wallet/pricebook.php [L,QSA]
-RewriteRule ^api/v1/wallet/me/transactions$ v1/wallet/transactions.php [L,QSA]
-RewriteRule ^api/v1/wallet/me$ v1/wallet/me.php [L,QSA]
+RewriteRule ^(?:api/)?v1/wallet/test-routing$ v1/wallet/test-routing.php [L,QSA]
+RewriteRule ^(?:api/)?v1/wallet/me/pricebook$ v1/wallet/pricebook.php [L,QSA]
+RewriteRule ^(?:api/)?v1/wallet/me/transactions$ v1/wallet/transactions.php [L,QSA]
+RewriteRule ^(?:api/)?v1/wallet/me$ v1/wallet/me.php [L,QSA]
 
 # Admin wallet endpoints
-RewriteRule ^api/v1/admin/users/wallet$ v1/admin/users/wallet.php [L,QSA]
-RewriteRule ^api/v1/admin/users/transactions$ v1/admin/users/transactions.php [L,QSA]
-RewriteRule ^api/v1/admin/users/seed$ v1/admin/users/seed.php [L,QSA]
+RewriteRule ^(?:api/)?v1/admin/users/wallet$ v1/admin/users/wallet.php [L,QSA]
+RewriteRule ^(?:api/)?v1/admin/users/transactions$ v1/admin/users/transactions.php [L,QSA]
+RewriteRule ^(?:api/)?v1/admin/users/seed$ v1/admin/users/seed.php [L,QSA]
 
 # ============================================================================
 # API v1 Routes - Token Authorization endpoints (Phase 2)
 # ============================================================================
 
 # Token deduction (single-shot)
-RewriteRule ^api/v1/tokens/deduct$ v1/tokens/deduct.php [L,QSA]
+RewriteRule ^(?:api/)?v1/tokens/deduct$ v1/tokens/deduct.php [L,QSA]
 
 # Token authorizations (hold-then-capture pattern)
-RewriteRule ^api/v1/tokens/authorizations/([^/]+)/capture$ v1/tokens/authorizations/capture.php?authorization_id=$1 [L,QSA]
-RewriteRule ^api/v1/tokens/authorizations/([^/]+)/void$ v1/tokens/authorizations/void.php?authorization_id=$1 [L,QSA]
-RewriteRule ^api/v1/tokens/authorizations$ v1/tokens/authorizations/create.php [L,QSA]
+RewriteRule ^(?:api/)?v1/tokens/authorizations/([^/]+)/capture$ v1/tokens/authorizations/capture.php?authorization_id=$1 [L,QSA]
+RewriteRule ^(?:api/)?v1/tokens/authorizations/([^/]+)/void$ v1/tokens/authorizations/void.php?authorization_id=$1 [L,QSA]
+RewriteRule ^(?:api/)?v1/tokens/authorizations$ v1/tokens/authorizations/create.php [L,QSA]
 
 # ============================================================================
 # API v1 Routes - Token Purchase endpoints (Phase 3)
 # ============================================================================
 
 # Purchases
-RewriteRule ^api/v1/wallet/me/purchases/([^/]+)$ v1/wallet/purchases/status.php?purchase_id=$1 [L,QSA]
-RewriteRule ^api/v1/wallet/me/purchases$ v1/wallet/purchases/create.php [L,QSA]
+RewriteRule ^(?:api/)?v1/wallet/me/purchases/([^/]+)$ v1/wallet/purchases/status.php?purchase_id=$1 [L,QSA]
+RewriteRule ^(?:api/)?v1/wallet/me/purchases$ v1/wallet/purchases/create.php [L,QSA]
 
 # Receipts
-RewriteRule ^api/v1/wallet/me/receipts/([^/]+)$ v1/wallet/receipts/view.php?receipt_no=$1 [L,QSA]
-RewriteRule ^api/v1/wallet/me/receipts$ v1/wallet/receipts/list.php [L,QSA]
+RewriteRule ^(?:api/)?v1/wallet/me/receipts/([^/]+)$ v1/wallet/receipts/view.php?receipt_no=$1 [L,QSA]
+RewriteRule ^(?:api/)?v1/wallet/me/receipts$ v1/wallet/receipts/list.php [L,QSA]
 
 # Payment webhooks
-RewriteRule ^api/v1/payments/webhook/([^/]+)$ v1/payments/webhook.php?provider=$1 [L,QSA]
+RewriteRule ^(?:api/)?v1/payments/webhook/([^/]+)$ v1/payments/webhook.php?provider=$1 [L,QSA]
 
 # ============================================================================
 # API v1 Routes - Promotions & Referrals (Phase 4)
 # ============================================================================
 
 # Referrals
-RewriteRule ^api/v1/wallet/me/referrals/link$ v1/wallet/referrals/link.php [L,QSA]
-RewriteRule ^api/v1/wallet/me/referrals$ v1/wallet/referrals/list.php [L,QSA]
+RewriteRule ^(?:api/)?v1/wallet/me/referrals/link$ v1/wallet/referrals/link.php [L,QSA]
+RewriteRule ^(?:api/)?v1/wallet/me/referrals$ v1/wallet/referrals/list.php [L,QSA]
 
 # Expiries
-RewriteRule ^api/v1/wallet/me/expiries$ v1/wallet/expiries/list.php [L,QSA]
+RewriteRule ^(?:api/)?v1/wallet/me/expiries$ v1/wallet/expiries/list.php [L,QSA]
 
 # Promotions (service endpoints)
-RewriteRule ^api/v1/promotions/referral/apply$ v1/promotions/referral_apply.php [L,QSA]
+RewriteRule ^(?:api/)?v1/promotions/referral/apply$ v1/promotions/referral_apply.php [L,QSA]
 
 # Admin - Campaigns
-RewriteRule ^api/v1/admin/promotions/campaigns/([^/]+)/stats$ v1/admin/promotions/campaigns/stats.php?campaign_id=$1 [L,QSA]
-RewriteRule ^api/v1/admin/promotions/campaigns/([^/]+)$ v1/admin/promotions/campaigns/view.php?campaign_id=$1 [L,QSA]
-RewriteRule ^api/v1/admin/promotions/campaigns$ v1/admin/promotions/campaigns/list.php [L,QSA]
+RewriteRule ^(?:api/)?v1/admin/promotions/campaigns/([^/]+)/stats$ v1/admin/promotions/campaigns/stats.php?campaign_id=$1 [L,QSA]
+RewriteRule ^(?:api/)?v1/admin/promotions/campaigns/([^/]+)$ v1/admin/promotions/campaigns/view.php?campaign_id=$1 [L,QSA]
+RewriteRule ^(?:api/)?v1/admin/promotions/campaigns$ v1/admin/promotions/campaigns/list.php [L,QSA]
 
 # Admin - Expiry preview
-RewriteRule ^api/v1/admin/promotions/expiries/preview$ v1/admin/promotions/expiry_preview.php [L,QSA]
+RewriteRule ^(?:api/)?v1/admin/promotions/expiries/preview$ v1/admin/promotions/expiry_preview.php [L,QSA]
 
 # ============================================================================
 # API v1 Routes - Analytics & Exports (Phase 5)
 # ============================================================================
 
 # Analytics - Token metrics
-RewriteRule ^api/v1/admin/analytics/tokens/overview$ v1/admin/analytics/tokens/overview.php [L,QSA]
-RewriteRule ^api/v1/admin/analytics/tokens/trend$ v1/admin/analytics/tokens/trend.php [L,QSA]
-RewriteRule ^api/v1/admin/analytics/tokens/by-feature$ v1/admin/analytics/tokens/by-feature.php [L,QSA]
-RewriteRule ^api/v1/admin/analytics/tokens/composition$ v1/admin/analytics/tokens/composition.php [L,QSA]
+RewriteRule ^(?:api/)?v1/admin/analytics/tokens/overview$ v1/admin/analytics/tokens/overview.php [L,QSA]
+RewriteRule ^(?:api/)?v1/admin/analytics/tokens/trend$ v1/admin/analytics/tokens/trend.php [L,QSA]
+RewriteRule ^(?:api/)?v1/admin/analytics/tokens/by-feature$ v1/admin/analytics/tokens/by-feature.php [L,QSA]
+RewriteRule ^(?:api/)?v1/admin/analytics/tokens/composition$ v1/admin/analytics/tokens/composition.php [L,QSA]
 
 # Analytics - User metrics
-RewriteRule ^api/v1/admin/analytics/users/top$ v1/admin/analytics/users/top.php [L,QSA]
+RewriteRule ^(?:api/)?v1/admin/analytics/users/top$ v1/admin/analytics/users/top.php [L,QSA]
 
 # Analytics - Exports
-RewriteRule ^api/v1/admin/analytics/exports/([^/]+)$ v1/admin/analytics/exports/status.php?export_id=$1 [L,QSA]
-RewriteRule ^api/v1/admin/analytics/exports$ v1/admin/analytics/exports/create.php [L,QSA]
+RewriteRule ^(?:api/)?v1/admin/analytics/exports/([^/]+)$ v1/admin/analytics/exports/status.php?export_id=$1 [L,QSA]
+RewriteRule ^(?:api/)?v1/admin/analytics/exports$ v1/admin/analytics/exports/create.php [L,QSA]
