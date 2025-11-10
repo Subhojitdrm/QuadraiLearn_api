@@ -29,3 +29,10 @@ function get_pdo(): PDO {
 
     return $pdo;
 }
+
+/**
+ * Backwards-compatible alias for newer v1 endpoints.
+ */
+function get_db(): PDO {
+    return get_pdo();
+}
