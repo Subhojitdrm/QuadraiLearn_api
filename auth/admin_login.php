@@ -65,10 +65,10 @@ SQL);
     $stmt = $pdo->prepare(
         'SELECT id, username, email, password_hash, full_name, is_active
          FROM admin_users
-         WHERE username = :ident OR email = :ident
+         WHERE username = :u OR email = :e
          LIMIT 1'
     );
-    $stmt->execute([':ident' => $identifier]);
+    $stmt->execute([':u' => $identifier, ':e' => $identifier]);
     $admin = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$admin || !(int)$admin['is_active']) {
