@@ -17,21 +17,27 @@ require_once __DIR__ . '/errors.php';
  * Validate and extract standard headers
  *
  * @param bool $requireIdempotencyKey Whether idempotency key is required (for mutations)
+ * @param bool $requireRequestId      Whether X-Request-Id must be explicitly provided
  * @return array Associative array with validated headers
  */
-function validate_standard_headers(bool $requireIdempotencyKey = false): array
+function validate_standard_headers(bool $requireIdempotencyKey = false, bool $requireRequestId = false): array
 {
     $headers = [];
 
-    // 1. X-Request-Id (required, must be UUID v4)
+    // 1. X-Request-Id (UUID v4). If absent/invalid and not required, auto-generate one.
     $requestId = $_SERVER['HTTP_X_REQUEST_ID'] ?? null;
-    if (!$requestId) {
-        validation_error('X-Request-Id header is required', ['X-Request-Id' => 'Missing required header']);
-    }
+    $hasRequestId = is_string($requestId) && $requestId !== '';
+    $isValidUuid = $hasRequestId && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $requestId);
 
-    // Validate UUID v4 format
-    if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $requestId)) {
-        validation_error('X-Request-Id must be a valid UUID v4', ['X-Request-Id' => 'Invalid UUID v4 format']);
+    if (!$hasRequestId || !$isValidUuid) {
+        if ($requireRequestId) {
+            $errorKey = $hasRequestId ? 'Invalid UUID v4 format' : 'Missing required header';
+            $errorMsg = $hasRequestId
+                ? 'X-Request-Id must be a valid UUID v4'
+                : 'X-Request-Id header is required';
+            validation_error($errorMsg, ['X-Request-Id' => $errorKey]);
+        }
+        $requestId = generate_uuid_v4();
     }
     $headers['request_id'] = $requestId;
 
@@ -61,6 +67,17 @@ function validate_standard_headers(bool $requireIdempotencyKey = false): array
     $headers['source'] = $source;
 
     return $headers;
+}
+
+/**
+ * Generate UUID v4 string
+ */
+function generate_uuid_v4(): string
+{
+    $data = random_bytes(16);
+    $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
+    $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
+    return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
 }
 
 /**
