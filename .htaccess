@@ -11,7 +11,8 @@ RewriteEngine On
 # IMPORTANT: Update this if your API is in a subdirectory
 # If API is at root: RewriteBase /
 # If API is at /api_folder/: RewriteBase /api_folder/
-RewriteBase /
+# We are deployed under /api, so rewrite relative to that folder
+RewriteBase /api/
 
 # ============================================================================
 # API v1 Routes - Wallet endpoints
