@@ -155,10 +155,20 @@ try {
 
         // Fetch page
         $led = $pdo->prepare(
-            'SELECT id, delta, reason, actor_type, actor_id, kind, created_at
-             FROM token_ledger
+            'SELECT id,
+                    token_type,
+                    direction,
+                    reason,
+                    amount,
+                    balance_after_regular,
+                    balance_after_promo,
+                    occurred_at,
+                    reference_id,
+                    metadata,
+                    idempotency_key
+             FROM wallet_ledger
              WHERE user_id = :u
-             ORDER BY created_at DESC, id DESC
+             ORDER BY occurred_at DESC, id DESC
              LIMIT :lim OFFSET :off'
         );
         $led->bindValue(':u',   $queryUserId, PDO::PARAM_INT);
@@ -172,14 +182,26 @@ try {
             'pageSize'  => $pageSize,
             'totalRows' => $totalRows,
             'rows'      => array_map(static function(array $r): array {
+                $meta = $r['metadata'];
+                if ($meta === null || $meta === '') {
+                    $metaOut = null;
+                } else {
+                    $decoded = json_decode($meta, true);
+                    $metaOut = (json_last_error() === JSON_ERROR_NONE) ? $decoded : $meta;
+                }
+
                 return [
-                    'id'         => (int)$r['id'],
-                    'delta'      => (int)$r['delta'],
-                    'reason'     => $r['reason'],
-                    'actorType'  => $r['actor_type'],
-                    'actorId'    => (int)$r['actor_id'],
-                    'kind'       => $r['kind'],
-                    'createdAt'  => $r['created_at'],
+                    'id'                 => $r['id'],
+                    'tokenType'          => $r['token_type'],
+                    'direction'          => $r['direction'],
+                    'reason'             => $r['reason'],
+                    'amount'             => (int)$r['amount'],
+                    'balanceAfterRegular'=> (int)$r['balance_after_regular'],
+                    'balanceAfterPromo'  => (int)$r['balance_after_promo'],
+                    'occurredAt'         => $r['occurred_at'],
+                    'referenceId'        => $r['reference_id'],
+                    'metadata'           => $metaOut,
+                    'idempotencyKey'     => $r['idempotency_key'],
                 ];
             }, $rows),
         ];
