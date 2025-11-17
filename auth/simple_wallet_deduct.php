@@ -67,17 +67,8 @@ if ($metadata !== [] && !is_array($metadata)) {
     $errors['metadata'] = 'metadata must be an object';
 }
 
-$validReasons = [
-    REASON_ADMIN_ADJUSTMENT,
-    REASON_CHAPTER_GENERATION,
-    REASON_REFUND_GENERATION_FAILURE,
-    REASON_PROMO_EXPIRY,
-    REASON_MIGRATION_CORRECTION,
-    REASON_TOKEN_PURCHASE,
-    REASON_REFERRAL_BONUS,
-];
-if (!in_array($reason, $validReasons, true)) {
-    $errors['reason'] = 'Reason must be one of: ' . implode(', ', $validReasons);
+if ($reason === '') {
+    $errors['reason'] = 'Reason is required';
 }
 
 if ($errors) {
