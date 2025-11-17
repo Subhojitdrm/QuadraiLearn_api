@@ -56,16 +56,19 @@ try {
 
     if (!$campaign) {
         $campaignId = ulid();
+        $defaultBonus = 100;
         $insert = $pdo->prepare('
             INSERT INTO promotion_campaigns (
-                id, name, type, status, start_at, end_at, metadata
-            ) VALUES (:id, :name, :type, :status, NOW(), DATE_ADD(NOW(), INTERVAL 365 DAY), :metadata)
+                id, name, type, status, bonus_amount, token_type, start_at, end_at, metadata
+            ) VALUES (:id, :name, :type, :status, :bonus_amount, :token_type, NOW(), DATE_ADD(NOW(), INTERVAL 365 DAY), :metadata)
         ');
         $insert->execute([
             ':id' => $campaignId,
             ':name' => 'Global Referral Campaign',
             ':type' => CAMPAIGN_TYPE_REFERRAL,
             ':status' => CAMPAIGN_STATUS_ACTIVE,
+            ':bonus_amount' => $defaultBonus,
+            ':token_type' => TOKEN_TYPE_REGULAR,
             ':metadata' => json_encode(['autoCreated' => true]),
         ]);
         $campaign = ['id' => $campaignId];
