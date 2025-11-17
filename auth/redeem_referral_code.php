@@ -22,6 +22,10 @@ require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../lib/auth.php';
 require_once __DIR__ . '/../lib/wallet.php';
 
+function get_referral_master_key(): ?string {
+    return 'QUADRA_MASTER_REFERRAL_KEY_2025';
+}
+
 function json_out(int $code, array $payload): void {
     http_response_code($code);
     echo json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -47,13 +51,29 @@ if ($userId <= 0) {
 $body = body_json();
 $code = strtoupper(trim((string)($body['referralCode'] ?? '')));
 $tokenAmount = isset($body['tokenAmount']) ? (int)$body['tokenAmount'] : 0;
+$masterKeyInput = trim((string)($body['masterKey'] ?? ''));
+$expectedMasterKey = get_referral_master_key();
+$usesMasterKey = $masterKeyInput !== '';
 
 $errors = [];
-if ($code === '' || strlen($code) > 32) {
-    $errors['referralCode'] = 'Valid referralCode is required';
-}
 if ($tokenAmount <= 0) {
     $errors['tokenAmount'] = 'tokenAmount must be greater than zero';
+}
+if (!$usesMasterKey) {
+    if ($code === '' || strlen($code) > 32) {
+        $errors['referralCode'] = 'Valid referralCode is required';
+    }
+} else {
+    if (!$expectedMasterKey || !hash_equals($expectedMasterKey, $masterKeyInput)) {
+        $errors['masterKey'] = 'Invalid masterKey provided';
+    }
+}
+if (!$usesMasterKey && $code === '') {
+    $errors['referralCode'] = 'referralCode is required';
+}
+if ($usesMasterKey && $code !== '') {
+    // optional but prevent mixing
+    $errors['referralCode'] = 'Do not pass referralCode when using masterKey';
 }
 if ($errors) {
     json_out(422, ['ok' => false, 'errors' => $errors]);
@@ -62,6 +82,33 @@ if ($errors) {
 try {
     $pdo = get_pdo();
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+    if ($usesMasterKey) {
+        $pdo->beginTransaction();
+        $idempotencyKey = sprintf('MASTER_REFERRAL:%d:%d:%s', $userId, $tokenAmount, date('Ymd'));
+        $ledgerEntry = wallet_credit(
+            $pdo,
+            $userId,
+            $tokenAmount,
+            TOKEN_TYPE_REGULAR,
+            REASON_REFERRAL_BONUS,
+            null,
+            [
+                'masterKey' => true,
+            ],
+            $idempotencyKey
+        );
+        $pdo->commit();
+        $balance = wallet_get_balance($pdo, $userId);
+        json_out(200, [
+            'ok' => true,
+            'message' => 'Master referral bonus credited',
+            'awardedTokens' => $tokenAmount,
+            'ledgerEntry' => $ledgerEntry,
+            'balance' => $balance,
+        ]);
+    }
+
     $pdo->beginTransaction();
 
     $stmt = $pdo->prepare(
