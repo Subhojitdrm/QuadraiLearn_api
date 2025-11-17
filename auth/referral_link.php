@@ -29,6 +29,13 @@ function json_out(int $code, array $payload): void {
     exit;
 }
 
+function table_has_column(PDO $pdo, string $table, string $column): bool {
+    $tableSafe = str_replace('`', '``', $table);
+    $stmt = $pdo->prepare("SHOW COLUMNS FROM `{$tableSafe}` LIKE :column");
+    $stmt->execute([':column' => $column]);
+    return (bool)$stmt->fetch(PDO::FETCH_ASSOC);
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     json_out(405, ['ok' => false, 'error' => 'method_not_allowed']);
 }
@@ -57,20 +64,39 @@ try {
     if (!$campaign) {
         $campaignId = ulid();
         $defaultBonus = 100;
-        $insert = $pdo->prepare('
-            INSERT INTO promotion_campaigns (
-                id, name, type, status, bonus_amount, token_type, start_at, end_at, metadata
-            ) VALUES (:id, :name, :type, :status, :bonus_amount, :token_type, NOW(), DATE_ADD(NOW(), INTERVAL 365 DAY), :metadata)
-        ');
-        $insert->execute([
+
+        $hasBonusAmount = table_has_column($pdo, 'promotion_campaigns', 'bonus_amount');
+        $hasTokenType = table_has_column($pdo, 'promotion_campaigns', 'token_type');
+
+        $columns = ['id', 'name', 'type', 'status', 'start_at', 'end_at', 'metadata'];
+        $placeholders = [':id', ':name', ':type', ':status', ':start_at', ':end_at', ':metadata'];
+        $params = [
             ':id' => $campaignId,
             ':name' => 'Global Referral Campaign',
             ':type' => CAMPAIGN_TYPE_REFERRAL,
             ':status' => CAMPAIGN_STATUS_ACTIVE,
-            ':bonus_amount' => $defaultBonus,
-            ':token_type' => TOKEN_TYPE_REGULAR,
+            ':start_at' => date('Y-m-d H:i:s'),
+            ':end_at' => date('Y-m-d H:i:s', strtotime('+365 days')),
             ':metadata' => json_encode(['autoCreated' => true]),
-        ]);
+        ];
+
+        if ($hasBonusAmount) {
+            $columns[] = 'bonus_amount';
+            $placeholders[] = ':bonus_amount';
+            $params[':bonus_amount'] = $defaultBonus;
+        }
+        if ($hasTokenType) {
+            $columns[] = 'token_type';
+            $placeholders[] = ':token_type';
+            $params[':token_type'] = TOKEN_TYPE_REGULAR;
+        }
+
+        $columnsSql = implode(', ', $columns);
+        $valuesSql = implode(', ', $placeholders);
+        $insertSql = "INSERT INTO promotion_campaigns ({$columnsSql}) VALUES ({$valuesSql})";
+
+        $insert = $pdo->prepare($insertSql);
+        $insert->execute($params);
         $campaign = ['id' => $campaignId];
     }
 
@@ -93,18 +119,32 @@ try {
     }
 
     $referralId = ulid();
-    $insertReferral = $pdo->prepare('
-        INSERT INTO referrals (id, campaign_id, referrer_user_id, referral_code, status, bonus_amount)
-        VALUES (:id, :campaign_id, :user_id, :code, :status, :bonus_amount)
-    ');
-    $insertReferral->execute([
+    $referralHasBonus = table_has_column($pdo, 'referrals', 'bonus_amount');
+
+    $refColumns = ['id', 'campaign_id', 'referrer_user_id', 'referral_code', 'status'];
+    $refPlaceholders = [':id', ':campaign_id', ':user_id', ':code', ':status'];
+    $refParams = [
         ':id' => $referralId,
         ':campaign_id' => $campaign['id'],
         ':user_id' => $userId,
         ':code' => $code,
         ':status' => REFERRAL_STATUS_GENERATED,
-        ':bonus_amount' => 0,
-    ]);
+    ];
+
+    if ($referralHasBonus) {
+        $refColumns[] = 'bonus_amount';
+        $refPlaceholders[] = ':bonus_amount';
+        $refParams[':bonus_amount'] = 0;
+    }
+
+    $refSql = sprintf(
+        'INSERT INTO referrals (%s) VALUES (%s)',
+        implode(', ', $refColumns),
+        implode(', ', $refPlaceholders)
+    );
+
+    $insertReferral = $pdo->prepare($refSql);
+    $insertReferral->execute($refParams);
 
     json_out(201, [
         'ok' => true,
