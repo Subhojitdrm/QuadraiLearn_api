@@ -84,7 +84,6 @@ try {
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     if ($usesMasterKey) {
-        $pdo->beginTransaction();
         $idempotencyKey = sprintf('MASTER_REFERRAL:%d:%d:%s', $userId, $tokenAmount, date('Ymd'));
         $ledgerEntry = wallet_credit(
             $pdo,
@@ -98,7 +97,6 @@ try {
             ],
             $idempotencyKey
         );
-        $pdo->commit();
         $balance = wallet_get_balance($pdo, $userId);
         json_out(200, [
             'ok' => true,
