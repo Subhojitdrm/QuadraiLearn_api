@@ -84,7 +84,11 @@ try {
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     if ($usesMasterKey) {
-        $idempotencyKey = sprintf('MASTER_REFERRAL:%d:%d:%s', $userId, $tokenAmount, date('Ymd'));
+        $requestToken = trim((string)($body['requestId'] ?? ''));
+        if ($requestToken === '') {
+            $requestToken = bin2hex(random_bytes(8));
+        }
+        $idempotencyKey = sprintf('MASTER_REFERRAL:%d:%d:%s:%s', $userId, $tokenAmount, date('Ymd'), $requestToken);
         $ledgerEntry = wallet_credit(
             $pdo,
             $userId,
