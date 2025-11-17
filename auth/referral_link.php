@@ -58,15 +58,14 @@ try {
         $campaignId = ulid();
         $insert = $pdo->prepare('
             INSERT INTO promotion_campaigns (
-                id, name, type, status, description, start_at, end_at, metadata
-            ) VALUES (:id, :name, :type, :status, :description, NOW(), DATE_ADD(NOW(), INTERVAL 365 DAY), :metadata)
+                id, name, type, status, start_at, end_at, metadata
+            ) VALUES (:id, :name, :type, :status, NOW(), DATE_ADD(NOW(), INTERVAL 365 DAY), :metadata)
         ');
         $insert->execute([
             ':id' => $campaignId,
             ':name' => 'Global Referral Campaign',
             ':type' => CAMPAIGN_TYPE_REFERRAL,
             ':status' => CAMPAIGN_STATUS_ACTIVE,
-            ':description' => 'Auto-created referral campaign',
             ':metadata' => json_encode(['autoCreated' => true]),
         ]);
         $campaign = ['id' => $campaignId];
