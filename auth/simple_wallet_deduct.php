@@ -18,7 +18,7 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -28,6 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../lib/wallet.php';
+require_once __DIR__ . '/../lib/auth.php';
 
 function json_out(int $code, array $payload): void {
     http_response_code($code);
@@ -45,8 +46,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     json_out(405, ['ok' => false, 'error' => 'method_not_allowed']);
 }
 
+$userClaims = require_auth();
 $input = body_json();
-$userId = (int)($input['userId'] ?? 0);
+$userId = isset($input['userId'])
+    ? (int)$input['userId']
+    : (int)($userClaims['sub'] ?? 0);
 $amount = (int)($input['amount'] ?? 0);
 $referenceId = isset($input['referenceId']) ? trim((string)$input['referenceId']) : null;
 $metadata = $input['metadata'] ?? [];
