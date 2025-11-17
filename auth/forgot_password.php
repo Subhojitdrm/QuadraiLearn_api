@@ -87,7 +87,9 @@ SQL);
 
         $plainToken = bin2hex(random_bytes(32));
         $tokenHash = hash('sha256', $plainToken);
-        $expiresAt = (new DateTimeImmutable('+30 minutes'))->format('Y-m-d H:i:s');
+        $issuedAt = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+        $expiresAtObj = $issuedAt->modify('+30 minutes');
+        $expiresAt = $expiresAtObj->format('Y-m-d H:i:s');
 
         $insert = $pdo->prepare(
             'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
@@ -102,6 +104,7 @@ SQL);
         // For now the API returns the token so clients can deliver it via custom channels.
         $response['resetToken'] = $plainToken;
         $response['expiresAt'] = $expiresAt;
+        $response['issuedAt'] = $issuedAt->format('Y-m-d H:i:s');
     }
 
     json_out($user ? 201 : 200, $response);
