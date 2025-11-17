@@ -87,9 +87,8 @@ if ($errors) {
 try {
     $pdo = get_pdo();
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->beginTransaction();
 
-    $entries = wallet_deduct_auto(
+    $result = wallet_deduct_auto(
         $pdo,
         $userId,
         $amount,
@@ -101,19 +100,14 @@ try {
 
     $balance = wallet_get_balance($pdo, $userId);
 
-    $pdo->commit();
-
     json_out(200, [
         'ok' => true,
         'message' => 'Tokens deducted successfully',
         'deducted' => $amount,
-        'entries' => $entries,
+        'entries' => $result,
         'balance' => $balance,
     ]);
 } catch (Throwable $e) {
-    if (isset($pdo) && $pdo->inTransaction()) {
-        $pdo->rollBack();
-    }
     $msg = (defined('DEBUG') && DEBUG)
         ? ($e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine())
         : 'server_error';
