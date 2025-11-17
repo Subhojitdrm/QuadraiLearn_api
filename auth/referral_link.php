@@ -30,10 +30,9 @@ function json_out(int $code, array $payload): void {
 }
 
 function table_has_column(PDO $pdo, string $table, string $column): bool {
-    $tableSafe = str_replace('`', '``', $table);
-    $stmt = $pdo->prepare("SHOW COLUMNS FROM `{$tableSafe}` LIKE :column");
-    $stmt->execute([':column' => $column]);
-    return (bool)$stmt->fetch(PDO::FETCH_ASSOC);
+    $stmt = $pdo->prepare('SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column');
+    $stmt->execute([':table' => $table, ':column' => $column]);
+    return (bool)$stmt->fetch(PDO::FETCH_NUM);
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -56,8 +55,8 @@ try {
         LIMIT 1
     ');
     $stmt->execute([
-        ':type' => CAMPAIGN_TYPE_REFERRAL,
-        ':status' => CAMPAIGN_STATUS_ACTIVE,
+        CAMPAIGN_TYPE_REFERRAL,
+        CAMPAIGN_STATUS_ACTIVE,
     ]);
     $campaign = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -68,28 +67,28 @@ try {
         $hasBonusAmount = table_has_column($pdo, 'promotion_campaigns', 'bonus_amount');
         $hasTokenType = table_has_column($pdo, 'promotion_campaigns', 'token_type');
 
-        $columns = ['id', 'name', 'type', 'status', 'start_at', 'end_at', 'metadata'];
-        $placeholders = [':id', ':name', ':type', ':status', ':start_at', ':end_at', ':metadata'];
-        $params = [
-            ':id' => $campaignId,
-            ':name' => 'Global Referral Campaign',
-            ':type' => CAMPAIGN_TYPE_REFERRAL,
-            ':status' => CAMPAIGN_STATUS_ACTIVE,
-            ':start_at' => date('Y-m-d H:i:s'),
-            ':end_at' => date('Y-m-d H:i:s', strtotime('+365 days')),
-            ':metadata' => json_encode(['autoCreated' => true]),
-        ];
+$columns = ['id', 'name', 'type', 'status', 'start_at', 'end_at', 'metadata'];
+$placeholders = ['?', '?', '?', '?', '?', '?', '?'];
+$params = [
+    $campaignId,
+    'Global Referral Campaign',
+    CAMPAIGN_TYPE_REFERRAL,
+    CAMPAIGN_STATUS_ACTIVE,
+    date('Y-m-d H:i:s'),
+    date('Y-m-d H:i:s', strtotime('+365 days')),
+    json_encode(['autoCreated' => true]),
+];
 
-        if ($hasBonusAmount) {
-            $columns[] = 'bonus_amount';
-            $placeholders[] = ':bonus_amount';
-            $params[':bonus_amount'] = $defaultBonus;
-        }
-        if ($hasTokenType) {
-            $columns[] = 'token_type';
-            $placeholders[] = ':token_type';
-            $params[':token_type'] = TOKEN_TYPE_REGULAR;
-        }
+if ($hasBonusAmount) {
+    $columns[] = 'bonus_amount';
+    $placeholders[] = '?';
+    $params[] = $defaultBonus;
+}
+if ($hasTokenType) {
+    $columns[] = 'token_type';
+    $placeholders[] = '?';
+    $params[] = TOKEN_TYPE_REGULAR;
+}
 
         $columnsSql = implode(', ', $columns);
         $valuesSql = implode(', ', $placeholders);
@@ -122,19 +121,19 @@ try {
     $referralHasBonus = table_has_column($pdo, 'referrals', 'bonus_amount');
 
     $refColumns = ['id', 'campaign_id', 'referrer_user_id', 'referral_code', 'status'];
-    $refPlaceholders = [':id', ':campaign_id', ':user_id', ':code', ':status'];
+    $refPlaceholders = ['?', '?', '?', '?', '?'];
     $refParams = [
-        ':id' => $referralId,
-        ':campaign_id' => $campaign['id'],
-        ':user_id' => $userId,
-        ':code' => $code,
-        ':status' => REFERRAL_STATUS_GENERATED,
+        $referralId,
+        $campaign['id'],
+        $userId,
+        $code,
+        REFERRAL_STATUS_GENERATED,
     ];
 
     if ($referralHasBonus) {
         $refColumns[] = 'bonus_amount';
-        $refPlaceholders[] = ':bonus_amount';
-        $refParams[':bonus_amount'] = 0;
+        $refPlaceholders[] = '?';
+        $refParams[] = 0;
     }
 
     $refSql = sprintf(
