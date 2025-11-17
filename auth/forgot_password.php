@@ -67,9 +67,9 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 SQL);
 
     $stmt = $pdo->prepare(
-        'SELECT id, email FROM users WHERE email = :identifier OR username = :identifier LIMIT 1'
+        'SELECT id, email FROM users WHERE email = :email OR username = :username LIMIT 1'
     );
-    $stmt->execute([':identifier' => $identifier]);
+    $stmt->execute([':email' => $identifier, ':username' => $identifier]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
     // Always respond with success payload to avoid leaking whether an account exists.
