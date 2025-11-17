@@ -91,8 +91,8 @@ try {
 
     $referralId = ulid();
     $insertReferral = $pdo->prepare('
-        INSERT INTO referrals (id, campaign_id, referrer_user_id, referral_code, status)
-        VALUES (:id, :campaign_id, :user_id, :code, :status)
+        INSERT INTO referrals (id, campaign_id, referrer_user_id, referral_code, status, bonus_amount)
+        VALUES (:id, :campaign_id, :user_id, :code, :status, :bonus_amount)
     ');
     $insertReferral->execute([
         ':id' => $referralId,
@@ -100,6 +100,7 @@ try {
         ':user_id' => $userId,
         ':code' => $code,
         ':status' => REFERRAL_STATUS_GENERATED,
+        ':bonus_amount' => 0,
     ]);
 
     json_out(201, [
